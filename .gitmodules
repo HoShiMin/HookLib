@@ -1,0 +1,3 @@
+[submodule "HookLib/Zydis"]
+	path = HookLib/Zydis
+	url = https://github.com/zyantific/zydis.git

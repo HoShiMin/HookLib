@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="HookLib">
+      <UniqueIdentifier>{02afc4be-0ef9-42b3-ae3e-04a33fb2b6ae}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="HookLib\HookLib.h">
+      <Filter>HookLib</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="HookLib\HookLib.c">
+      <Filter>HookLib</Filter>
+    </ClCompile>
+  </ItemGroup>
+</Project>
