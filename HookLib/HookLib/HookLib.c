@@ -436,8 +436,6 @@ static inline BOOLEAN IsGreaterThan2Gb(LPCVOID Src, LPCVOID Dest)
 
 static PVOID FindEmptyPageIn2Gb(PVOID From)
 {
-    return NULL;
-
     // Search in [-2Gb..From..+2Gb]:
     PBYTE Base = (PBYTE)AlignUp((size_t)From, ALLOCATION_GRANULARITY);
     if ((SIZE_T)Base >= BYTES_IN_2GB) {
