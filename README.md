@@ -9,7 +9,7 @@
 * Kernelmode support
 * Supports instructions relocation and thread's contexts fixup
   
-### ⚙️ How does it works:
+### ⚙️ How it works:
 ```
 TargetFunction():                                 ^ ; return
 -> jmp Interceptor ------> Interceptor():         |
