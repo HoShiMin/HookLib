@@ -211,7 +211,7 @@ static VOID Free(PVOID Base)
 #else
 static PVOID Alloc(OPTIONAL PVOID Base, SIZE_T Size, ULONG Protect)
 {
-    NTSTATUS Status = NtAllocateVirtualMemory(NtCurrentProcess(), &Base, 12, &Size, MEM_RESERVE | MEM_COMMIT, Protect);
+    NTSTATUS Status = NtAllocateVirtualMemory(NtCurrentProcess(), &Base, Base ? 12 : 0, &Size, MEM_RESERVE | MEM_COMMIT, Protect);
     return NT_SUCCESS(Status) ? Base : NULL;
 }
 
@@ -332,7 +332,7 @@ static BOOLEAN NTAPI EnumProcesses(
     NTSTATUS Status = NtQuerySystemInformation(SystemProcessInformation, NULL, 0, &Length);
 
     if (Status != STATUS_INFO_LENGTH_MISMATCH) return FALSE;
-    PWRK_SYSTEM_PROCESS_INFORMATION Info = Alloc(0, Length, PAGE_READWRITE);
+    PWRK_SYSTEM_PROCESS_INFORMATION Info = Alloc(NULL, Length, PAGE_READWRITE);
     if (!Info) return FALSE;
 
     Status = NtQuerySystemInformation(SystemProcessInformation, Info, Length, &Length);
@@ -408,11 +408,6 @@ static BOOLEAN ResumeThreads()
 }
 #endif
 
-static inline SIZE_T Abs(SSIZE_T Value)
-{
-    return Value > 0 ? (SIZE_T)Value : (SIZE_T)-Value;
-}
-
 #ifdef _KERNEL_MODE
 typedef const void* LPCVOID;
 typedef void* PVOID;
@@ -422,16 +417,35 @@ typedef BYTE* PBYTE;
 typedef PBYTE LPBYTE;
 #endif
 
-static inline BOOLEAN IsGreaterThan2Gb(LPCVOID Src, LPCVOID Dest)
+static inline BOOLEAN IsGreaterThan(LPCVOID Src, LPCVOID Dest, SIZE_T Delta)
 {
-    return Abs((SIZE_T)Dest - (SIZE_T)Src) > ((SIZE_T)2 * 1024 * 1048576);
+    return (Src < Dest ? (SIZE_T)Dest - (SIZE_T)Src : (SIZE_T)Src - (SIZE_T)Dest) > Delta;
 }
 
-#ifndef _KERNEL_MODE
+#ifdef _AMD64_
+static inline BOOLEAN IsGreaterThan2Gb(LPCVOID Src, LPCVOID Dest)
+{
+    return IsGreaterThan(Src, Dest, 2 * 1024 * 1048576UL);
+}
+#endif
+
+#if defined _AMD64_ && !defined _KERNEL_MODE
+
+#define ALLOCATION_GRANULARITY (64 * 1024)
+#define BYTES_IN_2GB (2 * 1024 * 1048576UL)
+
 static PVOID FindEmptyPageIn2Gb(PVOID From)
 {
-    static const ULONG Granularity = 64 * 1024;
-    PVOID Base = (PVOID)AlignDown((size_t)From, Granularity);
+    return NULL;
+
+    // Search in [-2Gb..From..+2Gb]:
+    PBYTE Base = (PBYTE)AlignUp((size_t)From, ALLOCATION_GRANULARITY);
+    if ((SIZE_T)Base >= BYTES_IN_2GB) {
+        Base -= BYTES_IN_2GB;
+    } else {
+        Base = NULL;
+    }
+
     MEMORY_BASIC_INFORMATION Info;
     SIZE_T ResultLength = 0;
     while (NT_SUCCESS(NtQueryVirtualMemory(
@@ -444,15 +458,15 @@ static PVOID FindEmptyPageIn2Gb(PVOID From)
     )) && ResultLength) {
         if (IsGreaterThan2Gb(From, (PVOID)Info.BaseAddress)) return NULL;
         if (Info.Protect == PAGE_NOACCESS) return Info.BaseAddress;
-        (PBYTE)Base += Info.RegionSize;
-        Base = (PVOID)AlignUp((size_t)Base, Granularity);
+        Base += Info.RegionSize;
+        Base = (PVOID)AlignUp((size_t)Base, ALLOCATION_GRANULARITY);
     }
     return NULL;
 }
 #endif
 
-#define ABS_TRAMPOLINE_SIZE 14
-#define REL_TRAMPOLINE_SIZE 5
+#define ABS_TRAMPOLINE_SIZE (14)
+#define REL_TRAMPOLINE_SIZE (5)
 
 #ifdef _AMD64_
 static VOID WriteAbsoluteTrampoline(LPVOID Src, LPCVOID Dest)
@@ -492,8 +506,7 @@ static BYTE TransitCode(LPCVOID Src, LPVOID Dest, SIZE_T Size)
 
         if (Instruction.attributes & ZYDIS_ATTRIB_IS_RELATIVE) {
             SSIZE_T Offset = (SSIZE_T)(SrcInstrPtr - DestInstrPtr);
-
-            if (Abs(Offset) > ((SIZE_T)1 << (Instruction.raw.disp.size - 1)))
+            if (IsGreaterThan(SrcInstrPtr, DestInstrPtr, (SIZE_T)1UL << (Instruction.raw.disp.size - 1)))
                 return 0; // We're unable to relocate this instruction
 
             switch (Instruction.raw.disp.size) {
@@ -627,19 +640,30 @@ BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 {
     if (!Target || !Interceptor) return FALSE;
 
+#ifdef _AMD64_
     PVOID EmptyPage = NULL; 
     
+    BOOLEAN NeedAbsoluteJump = FALSE;
     BOOLEAN NeedIntermediateJump = IsGreaterThan2Gb(Target, Interceptor);
     if (NeedIntermediateJump) {
         EmptyPage = FindEmptyPageIn2Gb(Target);
-        if (!EmptyPage) return FALSE;
+        NeedAbsoluteJump = !EmptyPage;
     }
 
     PHOOK_DATA Hook = Alloc(EmptyPage, sizeof(HOOK_DATA), PAGE_EXECUTE_READWRITE);
+#else
+    PHOOK_DATA Hook = Alloc(NULL, sizeof(HOOK_DATA), PAGE_EXECUTE_READWRITE);
+#endif
     if (!Hook) return FALSE;
 
     Hook->OriginalFunction = Target;
+
+#ifdef _AMD64_
+    Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE);
+#else
     Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, REL_TRAMPOLINE_SIZE);
+#endif
+
     if (!Hook->OriginalDataSize) {
         Free(Hook);
         return FALSE;
@@ -652,7 +676,12 @@ BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 #endif
 
     ULONG OldProtect = 0;
-    if (!NT_SUCCESS(Protect(Target, REL_TRAMPOLINE_SIZE, PAGE_EXECUTE_READWRITE, &OldProtect))) {
+#ifdef _AMD64_
+    if (!NT_SUCCESS(Protect(Target, NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE, PAGE_EXECUTE_READWRITE, &OldProtect)))
+#else
+    if (!NT_SUCCESS(Protect(Target, REL_TRAMPOLINE_SIZE, PAGE_EXECUTE_READWRITE, &OldProtect)))
+#endif
+    {
         Free(Hook);
         return FALSE;
     }
@@ -661,8 +690,13 @@ BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 
 #ifdef _AMD64_
     if (NeedIntermediateJump) {
-        WriteRelativeTrampoline(Target, Hook->LongTrampoline);
-        WriteAbsoluteTrampoline(Hook->LongTrampoline, Interceptor);
+        if (NeedAbsoluteJump) {
+            WriteRelativeTrampoline(Target, Hook->LongTrampoline);
+            WriteAbsoluteTrampoline(Hook->LongTrampoline, Interceptor);
+        }
+        else {
+            WriteAbsoluteTrampoline(Target, Interceptor);
+        }
     }
     else {
 #endif
@@ -671,7 +705,11 @@ BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     }
 #endif
 
+#ifdef _AMD64_
+    Protect(Target, NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE, OldProtect, &OldProtect);
+#else
     Protect(Target, REL_TRAMPOLINE_SIZE, OldProtect, &OldProtect);
+#endif
 
     FIXUP_CONTEXT_INFO FixupInfo;
     FixupInfo.CurrentPid = __pid();
