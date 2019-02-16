@@ -6,19 +6,34 @@
 #pragma comment(lib, "Zydis.lib")
 #pragma comment(lib, "HookLib.lib")
 
-using _ExitProcess = VOID(WINAPI*)(ULONG ExitCode);
-_ExitProcess OriginalExitProcess = NULL;
-VOID WINAPI ExitProcessHook(ULONG ExitCode)
-{
-    printf("ExitCode: %ul\r\n", ExitCode);
-    RemoveHook(OriginalExitProcess);
-    ExitProcess(0);
+namespace First {
+    Hook(VOID, WINAPI, ExitProcess, &ExitProcess, TRUE, UINT ExitCode)
+    {
+        printf("[Hook] ExitCode: %ul\n", ExitCode);
+        CallOriginal(ExitProcess)(ExitCode);
+    }
+}
+
+namespace Second {
+    HookKnown(VOID, WINAPI, ExitProcess, UINT ExitCode)
+    {
+        printf("[HookKnown] ExitCode: %ul\n", ExitCode);
+        CallOriginal(ExitProcess)(ExitCode);
+    }
+}
+
+namespace Third {
+    DeclareHookImport(VOID, WINAPI, "kernel32.dll", ExitProcess, UINT ExitCode)
+    {
+        printf("[HookImport] ExitCode: %ul\n", ExitCode);
+        CallOriginal(ExitProcess)(ExitCode);
+    }
 }
 
 int main()
 {
-    PVOID Target = GetProcAddress(GetModuleHandle(L"kernel32.dll"), "ExitProcess");
-    SetHook(Target, ExitProcessHook, reinterpret_cast<PVOID*>(&OriginalExitProcess));
+    EnableHook(Third::ExitProcess);
     ExitProcess(0);
-    return 0;
+    printf("We shouldn't be here!\r\n");
+    return -1;
 }

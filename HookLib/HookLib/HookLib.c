@@ -183,6 +183,40 @@ NTSYSAPI NTSTATUS NTAPI NtFlushInstructionCache(
     IN PVOID BaseAddress,
     IN SIZE_T NumberOfBytesToFlush
 );
+
+NTSYSAPI NTSTATUS NTAPI LdrGetDllHandle(
+    IN OPTIONAL PWORD pwPath,
+    IN OPTIONAL PVOID Unused,
+    IN PUNICODE_STRING ModuleFileName,
+    OUT PHANDLE pHModule
+);
+
+NTSYSAPI NTSTATUS NTAPI LdrGetProcedureAddress(
+    IN HMODULE ModuleHandle,
+    IN OPTIONAL PANSI_STRING FunctionName,
+    IN OPTIONAL WORD Oridinal,
+    OUT PVOID* FunctionAddress
+);
+
+HMODULE _GetModuleHandle(LPCWSTR ModuleName)
+{
+    if (!ModuleName) return NULL;
+    UNICODE_STRING Name;
+    RtlInitUnicodeString(&Name, ModuleName);
+    HMODULE hModule = NULL;
+    NTSTATUS Status = LdrGetDllHandle(NULL, NULL, &Name, &hModule);
+    return NT_SUCCESS(Status) ? hModule : NULL;
+}
+
+PVOID _GetProcAddress(HMODULE hModule, LPCSTR FunctionName)
+{
+    if (!hModule || !FunctionName) return NULL;
+    PVOID Address = NULL;
+    ANSI_STRING Name;
+    RtlInitAnsiString(&Name, FunctionName);
+    NTSTATUS Status = LdrGetProcedureAddress(hModule, &Name, 0, &Address);
+    return NT_SUCCESS(Status) ? Address : NULL;
+}
 #endif
 
 static size_t inline AlignDown(size_t Value, size_t Factor) {
@@ -484,6 +518,30 @@ static VOID WriteRelativeTrampoline(LPVOID Src, LPCVOID Dest)
     *(PULONG)((PBYTE)Src + sizeof(BYTE)) = (ULONG)((PBYTE)Dest - ((PBYTE)Src + 5));
 }
 
+static inline BOOLEAN RelocateInstruction(PBYTE DestInstrPtr, INT64 Offset, BYTE PatchOffset, BYTE PatchSize)
+{
+    switch (PatchSize) {
+    case 8:
+        *(PINT8)(DestInstrPtr + PatchOffset) += (INT8)Offset;
+        break;
+    case 16:
+        *(PINT16)(DestInstrPtr + PatchOffset) += (INT16)Offset;
+        break;
+    case 32:
+        *(PINT32)(DestInstrPtr + PatchOffset) += (INT32)Offset;
+        break;
+#ifdef _AMD64_
+    case 64:
+        *(PINT64)(DestInstrPtr + PatchOffset) += (INT64)Offset;
+        break;
+#endif
+    default:
+        // We're unable to relocate this instruction:
+        return FALSE;
+    }
+    return TRUE;
+}
+
 static BYTE TransitCode(LPCVOID Src, LPVOID Dest, SIZE_T Size)
 {
     ZydisDecoder Decoder;
@@ -504,27 +562,23 @@ static BYTE TransitCode(LPCVOID Src, LPVOID Dest, SIZE_T Size)
 
         if (Instruction.attributes & ZYDIS_ATTRIB_IS_RELATIVE) {
             SSIZE_T Offset = (SSIZE_T)(SrcInstrPtr - DestInstrPtr);
-            if (IsGreaterThan(SrcInstrPtr, DestInstrPtr, (SIZE_T)1UL << (Instruction.raw.disp.size - 1)))
-                return 0; // We're unable to relocate this instruction
 
-            switch (Instruction.raw.disp.size) {
-            case 8:
-                *(PINT8)(DestInstrPtr + Instruction.raw.disp.offset) += (INT8)Offset;
-                break;
-            case 16:
-                *(PINT16)(DestInstrPtr + Instruction.raw.disp.offset) += (INT16)Offset;
-                break;
-            case 32:
-                *(PINT32)(DestInstrPtr + Instruction.raw.disp.offset) += (INT32)Offset;
-                break;
-#ifdef _AMD64_
-            case 64:
-                *(PINT64)(DestInstrPtr + Instruction.raw.disp.offset) += (INT64)Offset;
-                break;
-#endif
-            default:
-                // We're unable to relocate this instruction:
-                return 0;
+            if (Instruction.raw.disp.offset) {
+                if (IsGreaterThan(SrcInstrPtr, DestInstrPtr, (SIZE_T)1UL << (Instruction.raw.disp.size - 1)))
+                    return 0; // We're unable to relocate this instruction
+
+                if (!RelocateInstruction(DestInstrPtr, Offset, Instruction.raw.disp.offset, Instruction.raw.disp.size))
+                    return 0; // We're unable to relocate this instruction
+            }
+
+            for (unsigned i = 0; i < 2; ++i) {
+                if (Instruction.raw.imm[i].offset && Instruction.raw.imm[i].is_relative) {
+                    if (IsGreaterThan(SrcInstrPtr, DestInstrPtr, (SIZE_T)1UL << (Instruction.raw.imm[i].size - 1)))
+                        return 0; // We're unable to relocate this instruction
+
+                    if (!RelocateInstruction(DestInstrPtr, Offset, Instruction.raw.imm[i].offset, Instruction.raw.imm[i].size))
+                        return 0; // We're unable to relocate this instruction
+                }
             }
         }
 
@@ -587,7 +641,7 @@ typedef struct _HOOK_DATA {
 } HOOK_DATA, *PHOOK_DATA;
 
 #ifdef _KERNEL_MODE
-BOOLEAN SetHookKm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
+static BOOLEAN SetHookKm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 {
     if (!Target || !Interceptor) return FALSE;
 
@@ -634,7 +688,7 @@ BOOLEAN SetHookKm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     return TRUE;
 }
 #else
-BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
+static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 {
     if (!Target || !Interceptor) return FALSE;
 
