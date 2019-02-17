@@ -30,9 +30,16 @@ namespace Third {
     }
 }
 
+DeclareHook(VOID, WINAPI, ExitProcess, UINT ExitCode)
+{
+    printf("[DynamicalTarget] ExitCode: %ul\n", ExitCode);
+    CallOriginal(ExitProcess)(ExitCode);
+}
+
 int main()
 {
     EnableHook(Third::ExitProcess);
+    ApplyHook(ExitProcess, QueryProcAddress(L"kernel32.dll", "ExitProcess"));
     ExitProcess(0);
     printf("We shouldn't be here!\r\n");
     return -1;

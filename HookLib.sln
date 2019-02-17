@@ -10,10 +10,16 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HookLib", "HookLib\HookLib.
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HookLibTests", "HookLibTests\HookLibTests.vcxproj", "{51822229-A0BE-4D4E-8025-F16A47ACC3EE}"
 	ProjectSection(ProjectDependencies) = postProject
+		{88A23124-5640-35A0-B890-311D7A67A7D2} = {88A23124-5640-35A0-B890-311D7A67A7D2}
 		{9379F9BC-7829-45D8-B339-90F6504FDF2B} = {9379F9BC-7829-45D8-B339-90F6504FDF2B}
 	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Zydis", "HookLib\Zydis\msvc\zydis\Zydis.vcxproj", "{88A23124-5640-35A0-B890-311D7A67A7D2}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{864DA1A2-E284-4456-8822-0E4D6D1F8C39}"
+	ProjectSection(SolutionItems) = preProject
+		HookLib\ZydisPropertySheet.props = HookLib\ZydisPropertySheet.props
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

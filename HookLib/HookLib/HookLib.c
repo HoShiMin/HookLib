@@ -468,15 +468,9 @@ static inline BOOLEAN IsGreaterThan2Gb(LPCVOID Src, LPCVOID Dest)
 #define ALLOCATION_GRANULARITY (64 * 1024)
 #define BYTES_IN_2GB (2 * 1024 * 1048576UL)
 
-static PVOID FindEmptyPageIn2Gb(PVOID From)
+static PVOID FindEmptyPageInLower2Gb(PVOID From)
 {
-    // Search in [-2Gb..From..+2Gb]:
-    PBYTE Base = (PBYTE)AlignUp((size_t)From, ALLOCATION_GRANULARITY);
-    if ((SIZE_T)Base >= BYTES_IN_2GB) {
-        Base -= BYTES_IN_2GB;
-    } else {
-        Base = NULL;
-    }
+    PBYTE Base = (PBYTE)AlignDown((size_t)From, ALLOCATION_GRANULARITY);
 
     MEMORY_BASIC_INFORMATION Info;
     SIZE_T ResultLength = 0;
@@ -488,12 +482,42 @@ static PVOID FindEmptyPageIn2Gb(PVOID From)
         sizeof(Info),
         &ResultLength
     )) && ResultLength) {
+        if (Info.Protect == PAGE_NOACCESS) return Base;
+        Base = (PBYTE)Info.BaseAddress - 1;
+        Base = (PVOID)AlignDown((size_t)Base, ALLOCATION_GRANULARITY);
         if (IsGreaterThan2Gb(From, (PVOID)Info.BaseAddress)) return NULL;
-        if (Info.Protect == PAGE_NOACCESS) return Info.BaseAddress;
-        Base += Info.RegionSize;
-        Base = (PVOID)AlignUp((size_t)Base, ALLOCATION_GRANULARITY);
     }
     return NULL;
+}
+
+static PVOID FindEmptyPageInUpper2Gb(PVOID From)
+{
+    return NULL;
+
+    PBYTE Base = (PBYTE)AlignUp((size_t)From, ALLOCATION_GRANULARITY);
+
+    MEMORY_BASIC_INFORMATION Info;
+    SIZE_T ResultLength = 0;
+    while (NT_SUCCESS(NtQueryVirtualMemory(
+        NtCurrentProcess(),
+        Base,
+        MemoryBasicInformation,
+        &Info,
+        sizeof(Info),
+        &ResultLength
+    )) && ResultLength) {
+        if (Info.Protect == PAGE_NOACCESS) return Base;
+        Base += Info.RegionSize;
+        Base = (PVOID)AlignUp((size_t)Base, ALLOCATION_GRANULARITY);
+        if (IsGreaterThan2Gb(From, (PVOID)Base)) return NULL;
+    }
+    return NULL;
+}
+
+static PVOID FindEmptyPageIn2Gb(PVOID From)
+{
+    PVOID Base = FindEmptyPageInUpper2Gb(From);
+    return Base ? Base : FindEmptyPageInLower2Gb(From);
 }
 #endif
 
@@ -743,11 +767,11 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 #ifdef _AMD64_
     if (NeedIntermediateJump) {
         if (NeedAbsoluteJump) {
-            WriteRelativeTrampoline(Target, Hook->LongTrampoline);
-            WriteAbsoluteTrampoline(Hook->LongTrampoline, Interceptor);
+            WriteAbsoluteTrampoline(Target, Interceptor);
         }
         else {
-            WriteAbsoluteTrampoline(Target, Interceptor);
+            WriteRelativeTrampoline(Target, Hook->LongTrampoline);
+            WriteAbsoluteTrampoline(Hook->LongTrampoline, Interceptor);
         }
     }
     else {

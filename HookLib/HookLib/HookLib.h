@@ -34,12 +34,19 @@ Hook(RetType, Convention, Func, &Func, FALSE, __VA_ARGS__)
 #define DeclareHookImport(RetType, Convention, Lib, Func, ...) \
 Hook(RetType, Convention, Func, (RetType(Convention*)(__VA_ARGS__))QueryProcAddress(L##Lib, #Func), FALSE, __VA_ARGS__)
 
+#define DeclareHook(RetType, Convention, Func, ...) \
+Hook(RetType, Convention, Func, (RetType(Convention*)(__VA_ARGS__))NULL, FALSE, __VA_ARGS__)
+
 #define CallOriginal(Func) (Func##Hook.Original)
 
 #define HookObject(Func) (Func##Hook)
 #define EnableHook(Func) HookObject(Func).Enable()
 #define DisableHook(Func) HookObject(Func).Disable()
 #define IsHookEnabled(Func) HookObject(Func).GetState()
+#define SetHookTarget(Func, Target) HookObject(Func).ReinitTarget((Func##Type)Target)
+#define ApplyHook(Func, Target) \
+SetHookTarget(Func, Target); \
+EnableHook(Func)
 
 template<typename T>
 class HookStorage {
@@ -63,14 +70,22 @@ public:
     HookStorage(T Target, T Interceptor, BOOLEAN InitialState) : _Original(NULL), _State(FALSE) {
         _Target = Target;
         _Interceptor = Interceptor;
-        if (InitialState) Enable();
+        if (Target && InitialState) Enable();
     }
 
     ~HookStorage() {
         Disable();
     }
 
+    BOOLEAN ReinitTarget(T Target) {
+        if (!Target) return FALSE;
+        if (_State) return FALSE;
+        _Target = Target;
+        return TRUE;
+    }
+
     BOOLEAN Enable() {
+        if (!_Target) return FALSE;
         if (_State) return TRUE;
         return SetHook(_Target, _Interceptor, reinterpret_cast<LPVOID*>(&_Original));
     }
