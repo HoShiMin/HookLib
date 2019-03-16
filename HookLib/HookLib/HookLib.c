@@ -19,6 +19,10 @@
 #include <Zydis/Zydis.h>
 #pragma comment(lib, "Zydis.lib")
 
+#if !defined offsetof
+#define offsetof(s, m) ((size_t)& (((s*)0)->m))
+#endif
+
 #ifndef _KERNEL_MODE
 #define NtCurrentProcess() ((HANDLE)-1)
 #define NtCurrentThread()  ((HANDLE)-2)
@@ -482,7 +486,7 @@ static PVOID FindEmptyPageInLower2Gb(PVOID From)
         sizeof(Info),
         &ResultLength
     )) && ResultLength) {
-        if (Info.Protect == PAGE_NOACCESS) return Base;
+        if (Info.State == MEM_FREE) return Base;
         Base = (PBYTE)Info.BaseAddress - 1;
         Base = (PVOID)AlignDown((size_t)Base, ALLOCATION_GRANULARITY);
         if (IsGreaterThan2Gb(From, (PVOID)Info.BaseAddress)) return NULL;
@@ -781,6 +785,8 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     }
 #endif
 
+    if (Original) *Original = Hook->OriginalBeginning;
+
 #ifdef _AMD64_
     Protect(Target, NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE, OldProtect, &OldProtect);
 #else
@@ -798,7 +804,6 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     NtFlushInstructionCache(NtCurrentProcess(), NULL, 0);
     ResumeThreads();
 
-    if (Original) *Original = Hook->OriginalBeginning;
     return TRUE;
 }
 #endif
