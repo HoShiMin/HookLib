@@ -721,12 +721,11 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     if (!Target || !Interceptor) return FALSE;
 
 #ifdef _AMD64_
-    PVOID EmptyPage = NULL; 
+    PVOID EmptyPage = FindEmptyPageIn2Gb(Target);
     
     BOOLEAN NeedAbsoluteJump = FALSE;
     BOOLEAN NeedIntermediateJump = IsGreaterThan2Gb(Target, Interceptor);
     if (NeedIntermediateJump) {
-        EmptyPage = FindEmptyPageIn2Gb(Target);
         NeedAbsoluteJump = !EmptyPage;
     }
 
