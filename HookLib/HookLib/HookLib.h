@@ -67,9 +67,9 @@ public:
     HookStorage& operator = (const HookStorage&) = delete;
     HookStorage& operator = (HookStorage&&) = delete;
 
-    HookStorage(T Target, T Interceptor, BOOLEAN InitialState) : _Original(NULL), _State(FALSE) {
-        _Target = Target;
-        _Interceptor = Interceptor;
+    HookStorage(T Target, T Interceptor, BOOLEAN InitialState)
+        : _Target(Target), _Interceptor(Interceptor), _Original(NULL), _State(FALSE)
+    {
         if (Target && InitialState) Enable();
     }
 
@@ -87,12 +87,12 @@ public:
     BOOLEAN Enable() {
         if (!_Target) return FALSE;
         if (_State) return TRUE;
-        return SetHook(_Target, _Interceptor, reinterpret_cast<LPVOID*>(&_Original));
+        return _State = SetHook(_Target, _Interceptor, reinterpret_cast<LPVOID*>(&_Original));
     }
 
     BOOLEAN Disable() {
         if (!_State) return TRUE;
-        return RemoveHook(_Original);
+        return _State = !RemoveHook(_Original);
     }
 
     inline BOOLEAN GetState() const {
