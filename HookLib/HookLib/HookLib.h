@@ -12,8 +12,8 @@ HOOKLIB_EXPORT PVOID _GetProcAddress(HMODULE hModule, LPCSTR FunctionName);
 #define QueryProcAddress(LibName, FuncName) _GetProcAddress(_GetModuleHandle(LibName), FuncName)
 #endif
 
-HOOKLIB_EXPORT BOOLEAN NTAPI SetHook(LPVOID Target, LPCVOID Interceptor, LPVOID* Original);
-HOOKLIB_EXPORT BOOLEAN NTAPI RemoveHook(LPVOID Original);
+HOOKLIB_EXPORT BOOLEAN NTAPI SetHook(void* Target, const void* Interceptor, void** Original);
+HOOKLIB_EXPORT BOOLEAN NTAPI RemoveHook(void* Original);
 
 #ifdef __cplusplus
 #define Hook(RetType, Convention, FuncName, FuncAddress, InitialStatus, ...) \
@@ -51,10 +51,10 @@ EnableHook(Func)
 template<typename T>
 class HookStorage {
 private:
-    T _Target;
-    T _Interceptor;
-    T _Original;
-    BOOLEAN _State;
+    T m_Target;
+    T m_Interceptor;
+    T m_Original;
+    BOOLEAN m_State;
 public:
     inline T GetOriginal() const {
         return _Original;
@@ -68,7 +68,7 @@ public:
     HookStorage& operator = (HookStorage&&) = delete;
 
     HookStorage(T Target, T Interceptor, BOOLEAN InitialState)
-        : _Target(Target), _Interceptor(Interceptor), _Original(NULL), _State(FALSE)
+        : m_Target(Target), m_Interceptor(Interceptor), m_Original(NULL), m_State(FALSE)
     {
         if (Target && InitialState) Enable();
     }
@@ -80,23 +80,23 @@ public:
     BOOLEAN ReinitTarget(T Target) {
         if (!Target) return FALSE;
         if (_State) return FALSE;
-        _Target = Target;
+        m_Target = Target;
         return TRUE;
     }
 
     BOOLEAN Enable() {
-        if (!_Target) return FALSE;
-        if (_State) return TRUE;
-        return _State = SetHook(_Target, _Interceptor, reinterpret_cast<LPVOID*>(&_Original));
+        if (!m_Target) return FALSE;
+        if (m_State) return TRUE;
+        return m_State = SetHook(m_Target, m_Interceptor, reinterpret_cast<LPVOID*>(&m_Original));
     }
 
     BOOLEAN Disable() {
-        if (!_State) return TRUE;
-        return _State = !RemoveHook(_Original);
+        if (!m_State) return TRUE;
+        return m_State = !RemoveHook(m_Original);
     }
 
     inline BOOLEAN GetState() const {
-        return _State;
+        return m_State;
     }
 };
 #endif
