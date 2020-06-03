@@ -223,11 +223,13 @@ PVOID _GetProcAddress(HMODULE hModule, LPCSTR FunctionName)
 }
 #endif
 
-static size_t inline AlignDown(size_t Value, size_t Factor) {
+static size_t inline AlignDown(size_t Value, size_t Factor)
+{
     return Value & ~(Factor - 1);
 }
 
-static size_t inline AlignUp(size_t Value, size_t Factor) {
+static size_t inline AlignUp(size_t Value, size_t Factor)
+{
     return AlignDown(Value - 1, Factor) + Factor;
 }
 
@@ -260,99 +262,7 @@ static VOID Free(PVOID Base)
 }
 #endif
 
-#ifdef _KERNEL_MODE
-typedef struct _STOP_PROCESSORS_DATA {
-    volatile LONG NeedToResume;
-    volatile LONG ProcessorsStopped;
-    LONG NeedToBeStopped;
-    KIRQL PreviousIrql;
-    KDPC Dpcs[MAXIMUM_PROCESSORS];
-} STOP_PROCESSORS_DATA, *PSTOP_PROCESSORS_DATA;
-
-static inline VOID WaitForEquality(volatile LONG* Value, LONG Desired)
-{
-    while (InterlockedCompareExchange(Value, Desired, Desired) != Desired)
-        YieldProcessor();
-}
-
-static inline VOID WaitForInequality(volatile LONG* Value, LONG Desired)
-{
-    while (InterlockedCompareExchange(Value, Desired, Desired) == Desired)
-        YieldProcessor();
-}
-
-static VOID StallDpcRoutine(KDPC* Dpc, PSTOP_PROCESSORS_DATA Context, PVOID Arg1, PVOID Arg2)
-{
-    InterlockedIncrement(&Context->ProcessorsStopped);
-    WaitForEquality(&Context->ProcessorsStopped, Context->NeedToBeStopped);
-
-    KIRQL Irql;
-    KeRaiseIrql(HIGH_LEVEL, &Irql);
-    while (!Context->NeedToResume) {
-        YieldProcessor();
-    }
-    KeLowerIrql(Irql);
-
-    InterlockedDecrement(&Context->ProcessorsStopped);
-}
-
-_IRQL_raises_(DISPATCH_LEVEL)
-static PSTOP_PROCESSORS_DATA StopProcessors()
-{
-    PSTOP_PROCESSORS_DATA Data = ExAllocatePoolWithTag(NonPagedPool, sizeof(*Data), POOL_TAG);
-    if (!Data) return NULL;
-    RtlZeroMemory(Data, sizeof(*Data));
-
-    KeRaiseIrql(DISPATCH_LEVEL, &Data->PreviousIrql);
-
-    KAFFINITY ActiveProcessors = 0;
-    ULONG CurrentProcessor = KeGetCurrentProcessorNumber();
-    ULONG ProcessorsCount = KeQueryActiveProcessorCount(&ActiveProcessors);
-    Data->NeedToBeStopped = ProcessorsCount;
-
-    for (unsigned i = 0; i < ProcessorsCount; ++i) {
-        if (i == CurrentProcessor) continue;
-        KeInitializeDpc(&Data->Dpcs[i], StallDpcRoutine, Data);
-        KeSetTargetProcessorDpc(&Data->Dpcs[i], (CCHAR)i);
-        KeSetImportanceDpc(&Data->Dpcs[i], HighImportance);
-        KeInsertQueueDpc(&Data->Dpcs[i], NULL, NULL);
-    }
-
-    InterlockedIncrement(&Data->ProcessorsStopped);
-    WaitForEquality(&Data->ProcessorsStopped, ProcessorsCount);
-
-    return Data;
-}
-
-_IRQL_restores_
-static VOID ResumeProcessors(IN PSTOP_PROCESSORS_DATA Data)
-{
-    if (!Data) return;
-
-    InterlockedDecrement(&Data->ProcessorsStopped);
-    InterlockedExchange(&Data->NeedToResume, TRUE);
-
-    WaitForEquality(&Data->ProcessorsStopped, 0);
-
-    KeLowerIrql(Data->PreviousIrql);
-    ExFreePoolWithTag(Data, POOL_TAG);
-}
-
-static inline SIZE_T CliAndUnlockWriteProtection()
-{
-    _disable();
-    SIZE_T Cr0 = __readcr0();
-    __writecr0(Cr0 & ~(1 << 16));
-    return Cr0;
-}
-
-static inline VOID RestoreWriteProtectionAndSti(SIZE_T Cr0)
-{
-    __writecr0(Cr0);
-    _enable();
-}
-
-#else
+#ifndef _KERNEL_MODE
 
 static NTSTATUS Protect(PVOID Address, SIZE_T Size, ULONG Protect, OUT PULONG OldProtect)
 {
@@ -374,7 +284,8 @@ static BOOLEAN NTAPI EnumProcesses(
     if (!Info) return FALSE;
 
     Status = NtQuerySystemInformation(SystemProcessInformation, Info, Length, &Length);
-    if (!NT_SUCCESS(Status)) {
+    if (!NT_SUCCESS(Status))
+    {
         Free(Info);
         return FALSE;
     }
@@ -406,13 +317,17 @@ static BOOLEAN SuspendResumeCallback(PWRK_SYSTEM_PROCESS_INFORMATION Process, PV
     PSUSPEND_RESUME_INFO Info = Arg;
     if ((SIZE_T)Process->UniqueProcessId != (SIZE_T)Info->CurrentPid) return TRUE; // Continue the processes enumeration loop
 
-    for (unsigned int i = 0; i < Process->NumberOfThreads; ++i) {
+    for (unsigned int i = 0; i < Process->NumberOfThreads; ++i)
+    {
         if ((SIZE_T)Process->Threads[i].ClientId.UniqueThread == (SIZE_T)Info->CurrentTid) continue;
+        
         HANDLE hThread = NULL;
         NTSTATUS Status = NtOpenThread(&hThread, THREAD_SUSPEND_RESUME, NULL, &Process->Threads[i].ClientId);
-        if (NT_SUCCESS(Status) && hThread) {
+        if (NT_SUCCESS(Status) && hThread)
+        {
             ULONG SuspendCount = 0;
-            switch (Info->Type) {
+            switch (Info->Type)
+            {
             case srtSuspend:
                 NtSuspendThread(hThread, &SuspendCount);
                 break;
@@ -525,30 +440,94 @@ static PVOID FindEmptyPageIn2Gb(PVOID From)
 }
 #endif
 
+#ifdef _KERNEL_MODE
+typedef struct _WRITEABLE_MAPPING {
+    PVOID MappedPages;
+    PMDL Mdl;
+} WRITEABLE_MAPPING, *PWRITEABLE_MAPPING;
+
+BOOLEAN MapWriteable(PVOID StartAddress, ULONG Size, OUT PWRITEABLE_MAPPING WriteableMapping)
+{
+    if (!WriteableMapping) return FALSE;
+
+    memset(WriteableMapping, 0, sizeof(*WriteableMapping));
+
+    PMDL Mdl = IoAllocateMdl(StartAddress, Size, FALSE, FALSE, NULL);
+    if (!Mdl) return FALSE;
+
+    __try
+    {
+        MmProbeAndLockPages(Mdl, KernelMode, IoReadAccess);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        IoFreeMdl(Mdl);
+        return FALSE;
+    }
+
+    PVOID Mapping = MmMapLockedPagesSpecifyCache(Mdl, KernelMode, MmNonCached, NULL, FALSE, HighPagePriority);
+    if (!Mapping)
+    {
+        MmUnlockPages(Mdl);
+        IoFreeMdl(Mdl);
+        return FALSE;
+    }
+
+    NTSTATUS Status = MmProtectMdlSystemAddress(Mdl, PAGE_READWRITE);
+    if (!NT_SUCCESS(Status))
+    {
+        MmUnmapLockedPages(Mapping, Mdl);
+        MmUnlockPages(Mdl);
+        IoFreeMdl(Mdl);
+        return FALSE;
+    }
+
+    WriteableMapping->MappedPages = Mapping;
+    WriteableMapping->Mdl = Mdl;
+
+    return TRUE;
+}
+
+VOID UnmapWriteable(IN PWRITEABLE_MAPPING WriteableMapping)
+{
+    if (WriteableMapping->MappedPages && WriteableMapping->Mdl)
+    {
+        MmUnmapLockedPages(WriteableMapping->MappedPages, WriteableMapping->Mdl);
+    }
+
+    if (WriteableMapping->Mdl)
+    {
+        MmUnlockPages(WriteableMapping->Mdl);
+        IoFreeMdl(WriteableMapping->Mdl);
+    }
+}
+#endif
+
 #define ABS_TRAMPOLINE_SIZE (14)
 #define REL_TRAMPOLINE_SIZE (5)
 
 #ifdef _AMD64_
-static VOID WriteAbsoluteTrampoline(LPVOID Src, LPCVOID Dest)
+static VOID WriteAbsoluteTrampoline(LPVOID WriteTo, LPCVOID Dest)
 {
     //      * jmp [rip+00h]
     // RIP -> 0x11223344
-    *(PUSHORT)((PBYTE)Src) = 0x25FF;
-    *(PULONG)((PBYTE)Src + sizeof(USHORT)) = 0x00000000;
-    *(LPCVOID*)((PBYTE)Src + sizeof(USHORT) + sizeof(ULONG)) = Dest;
+    *(PUSHORT)((PBYTE)WriteTo) = 0x25FF;
+    *(PULONG)((PBYTE)WriteTo + sizeof(USHORT)) = 0x00000000;
+    *(LPCVOID*)((PBYTE)WriteTo + sizeof(USHORT) + sizeof(ULONG)) = Dest;
 }
 #endif
 
-static VOID WriteRelativeTrampoline(LPVOID Src, LPCVOID Dest)
+static VOID WriteRelativeTrampoline(LPVOID WriteTo, LPVOID Src, LPCVOID Dest)
 {
     // jmp 0x11223344
-    *(PBYTE)(Src) = 0xE9;
-    *(PULONG)((PBYTE)Src + sizeof(BYTE)) = (ULONG)((PBYTE)Dest - ((PBYTE)Src + 5));
+    *(PBYTE)(WriteTo) = 0xE9;
+    *(PULONG)((PBYTE)WriteTo + sizeof(BYTE)) = (ULONG)((PBYTE)Dest - ((PBYTE)Src + 5));
 }
 
 static inline BOOLEAN RelocateInstruction(PBYTE DestInstrPtr, INT64 Offset, BYTE PatchOffset, BYTE PatchSize)
 {
-    switch (PatchSize) {
+    switch (PatchSize)
+    {
     case 8:
         *(PINT8)(DestInstrPtr + PatchOffset) += (INT8)Offset;
         break;
@@ -583,15 +562,18 @@ static BYTE TransitCode(LPCVOID Src, LPVOID Dest, SIZE_T Size)
 
     LPCVOID InstructionCounter = Src;
     ZydisDecodedInstruction Instruction;
-    while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&Decoder, InstructionCounter, 16, &Instruction))) {
+    while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&Decoder, InstructionCounter, 16, &Instruction)))
+    {
         const unsigned char* SrcInstrPtr = InstructionCounter;
         unsigned char* DestInstrPtr = (PBYTE)Dest + (SrcInstrPtr - (PBYTE)Src);
         memcpy(DestInstrPtr, SrcInstrPtr, Instruction.length);
 
-        if (Instruction.attributes & ZYDIS_ATTRIB_IS_RELATIVE) {
+        if (Instruction.attributes & ZYDIS_ATTRIB_IS_RELATIVE)
+        {
             SSIZE_T Offset = (SSIZE_T)(SrcInstrPtr - DestInstrPtr);
 
-            if (Instruction.raw.disp.offset) {
+            if (Instruction.raw.disp.offset)
+            {
                 if (IsGreaterThan(SrcInstrPtr, DestInstrPtr, (SIZE_T)1UL << (Instruction.raw.disp.size - 1)))
                     return 0; // We're unable to relocate this instruction
 
@@ -599,8 +581,10 @@ static BYTE TransitCode(LPCVOID Src, LPVOID Dest, SIZE_T Size)
                     return 0; // We're unable to relocate this instruction
             }
 
-            for (unsigned i = 0; i < 2; ++i) {
-                if (Instruction.raw.imm[i].offset && Instruction.raw.imm[i].is_relative) {
+            for (unsigned i = 0; i < 2; ++i)
+            {
+                if (Instruction.raw.imm[i].offset && Instruction.raw.imm[i].is_relative)
+                {
                     if (IsGreaterThan(SrcInstrPtr, DestInstrPtr, (SIZE_T)1UL << (Instruction.raw.imm[i].size - 1)))
                         return 0; // We're unable to relocate this instruction
 
@@ -634,14 +618,18 @@ static BOOLEAN FixupContextsCallback(PWRK_SYSTEM_PROCESS_INFORMATION Process, PV
     PFIXUP_CONTEXT_INFO Info = Arg;
     if ((SIZE_T)Process->UniqueProcessId != (SIZE_T)Info->CurrentPid) return TRUE; // Continue the processes enumeration loop
 
-    for (unsigned int i = 0; i < Process->NumberOfThreads; ++i) {
+    for (unsigned int i = 0; i < Process->NumberOfThreads; ++i)
+    {
         if ((SIZE_T)Process->Threads[i].ClientId.UniqueThread == (SIZE_T)Info->CurrentTid) continue;
+
         HANDLE hThread = NULL;
         NTSTATUS Status = NtOpenThread(&hThread, THREAD_SUSPEND_RESUME, NULL, &Process->Threads[i].ClientId);
-        if (NT_SUCCESS(Status) && hThread) {
+        if (NT_SUCCESS(Status) && hThread)
+        {
             CONTEXT Context;
             Context.ContextFlags = CONTEXT_ALL;
-            if (NT_SUCCESS(NtGetContextThread(hThread, &Context))) {
+            if (NT_SUCCESS(NtGetContextThread(hThread, &Context)))
+            {
 #ifdef _AMD64_
                 if (Context.Rip >= (DWORD64)Info->AffectedCode && Context.Rip < (DWORD64)Info->AffectedCode + Info->Size)
                     Context.Rip = (DWORD64)Info->OriginalCode + (Context.Rip - (DWORD64)Info->AffectedCode);
@@ -665,8 +653,27 @@ typedef struct _HOOK_DATA {
 #endif
     PVOID OriginalFunction;  // Address of hooked function
     ULONG OriginalDataSize;  // Size of saved original beginning
-    __declspec(align(64)) BYTE OriginalBeginning[64];
+    ULONG AffectedBytes;     // Size of affected bytes of original function
+    BYTE OriginalBeginning[32];
+    BYTE OriginalBytes[32];
 } HOOK_DATA, *PHOOK_DATA;
+
+static VOID SaveOriginalBytes(OUT PHOOK_DATA Hook, LPCVOID Target, ULONG Size)
+{
+    Hook->AffectedBytes = Size;
+    for (unsigned int i = 0; i < Size; ++i)
+    {
+        Hook->OriginalBytes[i] = *((PBYTE)Target + i);
+    }
+}
+
+static VOID RestoreOriginalBytes(IN PHOOK_DATA Hook, LPVOID WriteTo)
+{
+    for (unsigned int i = 0; i < Hook->AffectedBytes; ++i)
+    {
+        *((PBYTE)WriteTo + i) = Hook->OriginalBytes[i];
+    }
+}
 
 #ifdef _KERNEL_MODE
 static BOOLEAN SetHookKm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
@@ -680,39 +687,59 @@ static BOOLEAN SetHookKm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     
 #ifdef _AMD64_
     BOOLEAN NeedAbsoluteJump = IsGreaterThan2Gb(Target, Interceptor);
-    if (NeedAbsoluteJump) {
+    if (NeedAbsoluteJump)
+    {
+        SaveOriginalBytes(Hook, Target, ABS_TRAMPOLINE_SIZE);
         Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, ABS_TRAMPOLINE_SIZE);
         WriteAbsoluteTrampoline((PBYTE)Hook->OriginalBeginning + Hook->OriginalDataSize, (PBYTE)Target + Hook->OriginalDataSize);
     }
-    else {
+    else
+    {
 #endif
+        SaveOriginalBytes(Hook, Target, REL_TRAMPOLINE_SIZE);
         Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, REL_TRAMPOLINE_SIZE);
-        WriteRelativeTrampoline((PBYTE)Hook->OriginalBeginning + Hook->OriginalDataSize, (PBYTE)Target + Hook->OriginalDataSize);
+        PBYTE WriteTo = (PBYTE)Hook->OriginalBeginning + Hook->OriginalDataSize;
+        WriteRelativeTrampoline(WriteTo, WriteTo, (PBYTE)Target + Hook->OriginalDataSize);
 #ifdef _AMD64_
     }
 #endif
 
-    PSTOP_PROCESSORS_DATA StopData = StopProcessors();
-    if (StopData) {
-        SIZE_T Cr0 = CliAndUnlockWriteProtection();
+    WRITEABLE_MAPPING Writeable;
+
 #ifdef _AMD64_
-        if (NeedAbsoluteJump) {
-            WriteAbsoluteTrampoline(Target, Interceptor);
-        } else {
+    BOOLEAN WriteableStatus = MapWriteable(Target, NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE, &Writeable);
+#else
+    BOOLEAN WriteableStatus = MapWriteable(Target, REL_TRAMPOLINE_SIZE, &Writeable);
 #endif
-            WriteRelativeTrampoline(Target, Interceptor);
-#ifdef _AMD64_
-        }
-#endif
-        RestoreWriteProtectionAndSti(Cr0);
-        ResumeProcessors(StopData);
-    }
-    else {
+
+    if (!WriteableStatus)
+    {
         Free(Hook);
         return FALSE;
     }
 
+    KIRQL Irql = KeRaiseIrqlToDpcLevel();
+
+#ifdef _AMD64_
+    if (NeedAbsoluteJump)
+    {
+        WriteAbsoluteTrampoline(Writeable.MappedPages, Interceptor);
+    }
+    else
+    {
+#endif
+        WriteRelativeTrampoline(Writeable.MappedPages, Target, Interceptor);
+#ifdef _AMD64_
+    }
+#endif
+
     if (Original) *Original = Hook->OriginalBeginning;
+
+    _mm_sfence();
+    KeLowerIrql(Irql);
+
+    UnmapWriteable(&Writeable);
+
     return TRUE;
 }
 #else
@@ -725,7 +752,8 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     
     BOOLEAN NeedAbsoluteJump = FALSE;
     BOOLEAN NeedIntermediateJump = IsGreaterThan2Gb(Target, Interceptor);
-    if (NeedIntermediateJump) {
+    if (NeedIntermediateJump)
+    {
         NeedAbsoluteJump = !EmptyPage;
     }
 
@@ -738,12 +766,16 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     Hook->OriginalFunction = Target;
 
 #ifdef _AMD64_
-    Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE);
+    ULONG TrampolineSize = NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE;
+    SaveOriginalBytes(Hook, Target, TrampolineSize);
+    Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, TrampolineSize);
 #else
+    SaveOriginalBytes(Hook, Target, REL_TRAMPOLINE_SIZE);
     Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, REL_TRAMPOLINE_SIZE);
 #endif
 
-    if (!Hook->OriginalDataSize) {
+    if (!Hook->OriginalDataSize)
+    {
         Free(Hook);
         return FALSE;
     }
@@ -751,7 +783,8 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
 #ifdef _AMD64_
     WriteAbsoluteTrampoline((PBYTE)Hook->OriginalBeginning + Hook->OriginalDataSize, (PBYTE)Target + Hook->OriginalDataSize);
 #else
-    WriteRelativeTrampoline((PBYTE)Hook->OriginalBeginning + Hook->OriginalDataSize, (PBYTE)Target + Hook->OriginalDataSize);
+    PBYTE WriteTo = (PBYTE)Hook->OriginalBeginning + Hook->OriginalDataSize;
+    WriteRelativeTrampoline(WriteTo, WriteTo, (PBYTE)Target + Hook->OriginalDataSize);
 #endif
 
     ULONG OldProtect = 0;
@@ -768,18 +801,21 @@ static BOOLEAN SetHookUm(LPVOID Target, LPCVOID Interceptor, LPVOID* Original)
     SuspendThreads();
 
 #ifdef _AMD64_
-    if (NeedIntermediateJump) {
-        if (NeedAbsoluteJump) {
+    if (NeedIntermediateJump)
+    {
+        if (NeedAbsoluteJump)
+        {
             WriteAbsoluteTrampoline(Target, Interceptor);
         }
-        else {
-            WriteRelativeTrampoline(Target, Hook->LongTrampoline);
+        else
+        {
+            WriteRelativeTrampoline(Target, Target, Hook->LongTrampoline);
             WriteAbsoluteTrampoline(Hook->LongTrampoline, Interceptor);
         }
     }
     else {
 #endif
-        WriteRelativeTrampoline(Target, Interceptor);
+        WriteRelativeTrampoline(Target, Target, Interceptor);
 #ifdef _AMD64_
     }
 #endif
@@ -823,24 +859,33 @@ BOOLEAN NTAPI RemoveHook(LPVOID Original)
     PHOOK_DATA Hook = (PHOOK_DATA)((PBYTE)Original - offsetof(HOOK_DATA, OriginalBeginning));
 
 #ifdef _KERNEL_MODE
-    PSTOP_PROCESSORS_DATA StopData = StopProcessors();
-    if (!StopData) return FALSE;
-    SIZE_T Cr0 = CliAndUnlockWriteProtection();
+    WRITEABLE_MAPPING Writeable;
+    BOOLEAN WriteableStatus = MapWriteable(Hook->OriginalFunction, Hook->AffectedBytes, &Writeable);
+    if (!WriteableStatus)
+    {
+        return FALSE;
+    }
+
+    KIRQL Irql = KeRaiseIrqlToDpcLevel();
+
+    RestoreOriginalBytes(Hook, Writeable.MappedPages);
+    
+    _mm_sfence();
+    KeLowerIrql(Irql);
+
+    UnmapWriteable(&Writeable);
+
 #else
     ULONG OldProtect = 0;
-    if (!NT_SUCCESS(Protect(Hook->OriginalFunction, Hook->OriginalDataSize, PAGE_EXECUTE_READWRITE, &OldProtect))) {
+    if (!NT_SUCCESS(Protect(Hook->OriginalFunction, Hook->OriginalDataSize, PAGE_EXECUTE_READWRITE, &OldProtect)))
+    {
         return FALSE;
     }
 
     SuspendThreads();
-#endif
 
-    TransitCode(Hook->OriginalBeginning, Hook->OriginalFunction, Hook->OriginalDataSize);
-    
-#ifdef _KERNEL_MODE
-    RestoreWriteProtectionAndSti(Cr0);
-    ResumeProcessors(StopData);
-#else
+    RestoreOriginalBytes(Hook, Hook->OriginalFunction);
+
     Protect(Hook->OriginalFunction, Hook->OriginalDataSize, OldProtect, &OldProtect);
 
     FIXUP_CONTEXT_INFO FixupInfo;
