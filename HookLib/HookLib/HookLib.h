@@ -57,7 +57,7 @@ private:
     BOOLEAN m_State;
 public:
     inline T GetOriginal() const {
-        return _Original;
+        return m_Original;
     }
     __declspec(property(get = GetOriginal)) T Original;
     
@@ -79,7 +79,7 @@ public:
 
     BOOLEAN ReinitTarget(T Target) {
         if (!Target) return FALSE;
-        if (_State) return FALSE;
+        if (m_State) return FALSE;
         m_Target = Target;
         return TRUE;
     }
