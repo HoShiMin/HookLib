@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windef.h>
+
 #ifdef __cplusplus
 #define HOOKLIB_EXPORT extern "C"
 #else
