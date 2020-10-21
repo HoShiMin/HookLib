@@ -904,3 +904,52 @@ BOOLEAN NTAPI RemoveHook(LPVOID Original)
 
     return TRUE;
 }
+
+
+BOOLEAN CreateTraponlineUm(LPVOID Target, LPCVOID Interceptor, PBYTE TpBuff, BYTE nSize)
+{
+	if (!Target || !Interceptor || !TpBuff || (nSize < 32)) return FALSE;
+
+#ifdef _AMD64_
+	PVOID EmptyPage = FindEmptyPageIn2Gb(Target);
+
+	BOOLEAN NeedAbsoluteJump = FALSE;
+	BOOLEAN NeedIntermediateJump = IsGreaterThan2Gb(Target, Interceptor);
+	if (NeedIntermediateJump)
+	{
+		NeedAbsoluteJump = !EmptyPage;
+	}
+
+	PHOOK_DATA Hook = Alloc(EmptyPage, sizeof(HOOK_DATA), PAGE_EXECUTE_READWRITE);
+#else
+	PHOOK_DATA Hook = Alloc(NULL, sizeof(HOOK_DATA), PAGE_EXECUTE_READWRITE);
+#endif
+	if (!Hook) return FALSE;
+
+	Hook->OriginalFunction = Target;
+
+#ifdef _AMD64_
+	ULONG TrampolineSize = NeedAbsoluteJump ? ABS_TRAMPOLINE_SIZE : REL_TRAMPOLINE_SIZE;
+	SaveOriginalBytes(Hook, Target, TrampolineSize);
+	Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, TrampolineSize);
+#else
+	SaveOriginalBytes(Hook, Target, REL_TRAMPOLINE_SIZE);
+	Hook->OriginalDataSize = TransitCode(Target, Hook->OriginalBeginning, REL_TRAMPOLINE_SIZE);
+#endif
+
+	if (!Hook->OriginalDataSize)
+	{
+		Free(Hook);
+		return FALSE;
+	}
+
+	// backup TransitCode 
+	__movsb(TpBuff, Hook->OriginalBeginning, sizeof(Hook->OriginalBeginning));
+#ifdef _AMD64_
+	WriteAbsoluteTrampoline(TpBuff + Hook->OriginalDataSize, (PBYTE)Target + Hook->OriginalDataSize);
+#else
+	WriteRelativeTrampoline(TpBuff + Hook->OriginalDataSize, TpBuff + Hook->OriginalDataSize, (PBYTE)Target + Hook->OriginalDataSize);
+#endif
+	Free(Hook);
+	return TRUE;
+}
