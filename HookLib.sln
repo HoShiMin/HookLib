@@ -16,6 +16,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HookLibTests", "HookLibTest
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Zydis", "HookLib\Zydis\msvc\zydis\Zydis.vcxproj", "{88A23124-5640-35A0-B890-311D7A67A7D2}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HookLibDrvTests", "HookLibDrvTests\HookLibDrvTests.vcxproj", "{3E9752F7-9B84-4844-847E-08F6E2DE1D32}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug Kernel|x64 = Debug Kernel|x64
@@ -58,24 +60,32 @@ Global
 		{51822229-A0BE-4D4E-8025-F16A47ACC3EE}.Release|x86.Build.0 = Release|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.ActiveCfg = Debug Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.Build.0 = Debug Kernel|x64
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x64.Deploy.0 = Debug Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x86.ActiveCfg = Debug Kernel|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x86.Build.0 = Debug Kernel|Win32
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug Kernel|x86.Deploy.0 = Debug Kernel|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug|x64.ActiveCfg = Debug MT|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug|x64.Build.0 = Debug MT|x64
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug|x86.ActiveCfg = Debug MD DLL|Win32
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug|x86.Build.0 = Debug MD DLL|Win32
+		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug|x86.ActiveCfg = Debug MT|Win32
+		{88A23124-5640-35A0-B890-311D7A67A7D2}.Debug|x86.Build.0 = Debug MT|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release Kernel|x64.ActiveCfg = Release Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release Kernel|x64.Build.0 = Release Kernel|x64
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release Kernel|x64.Deploy.0 = Release Kernel|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release Kernel|x86.ActiveCfg = Release Kernel|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release Kernel|x86.Build.0 = Release Kernel|Win32
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release Kernel|x86.Deploy.0 = Release Kernel|Win32
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release|x64.ActiveCfg = Release MT|x64
 		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release|x64.Build.0 = Release MT|x64
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release|x86.ActiveCfg = Release MD|Win32
-		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release|x86.Build.0 = Release MD|Win32
+		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release|x86.ActiveCfg = Release MT|Win32
+		{88A23124-5640-35A0-B890-311D7A67A7D2}.Release|x86.Build.0 = Release MT|Win32
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Debug Kernel|x64.ActiveCfg = Debug|x64
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Debug Kernel|x64.Build.0 = Debug|x64
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Debug Kernel|x86.ActiveCfg = Debug|Win32
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Debug Kernel|x86.Build.0 = Debug|Win32
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Debug|x64.ActiveCfg = Debug|x64
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Debug|x86.ActiveCfg = Debug|Win32
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Release Kernel|x64.ActiveCfg = Release|x64
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Release Kernel|x64.Build.0 = Release|x64
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Release Kernel|x86.ActiveCfg = Release|Win32
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Release Kernel|x86.Build.0 = Release|Win32
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Release|x64.ActiveCfg = Release|x64
+		{3E9752F7-9B84-4844-847E-08F6E2DE1D32}.Release|x86.ActiveCfg = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

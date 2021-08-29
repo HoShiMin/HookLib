@@ -1,4 +1,4 @@
-# HookLib
+# HookLib²
 ## The Win32 lightweight functions interception library
 ### ✔ Advantages:
 * Written on pure C
@@ -8,8 +8,18 @@
 * Has no other dependencies
 * Kernelmode support
 * Supports instructions relocation and thread's contexts fixup
-  
-### ⚙️ How it works:
+
+### 📰 What's new in the 2nd Gen:
+* The HookLib was completely rewritten
+* Extremely reduced allocations, processes/threads enumerations and handles manipulations count
+* Multihook/multiunhook support that hooks/unhooks multiple functions in one session
+* Extremely reduced memory consumption for usermode hooks: one hook page (4Kb) can hold 39 cells for nearest hooks that removes the need to allocate one page per each hook
+* Support of KM->UM hooks (even with support of contexts fixup directly from kernelmode):
+  * KM:Amd64 -> UM:Amd64
+  * KM:Amd64 -> UM:Wow64
+  * KM:i386 -> UM:i386
+
+### 🔬 How it works:
 ```
 TargetFunction():                                 ^ ; return
 -> jmp Interceptor ------> Interceptor():         |
@@ -18,44 +28,90 @@ TargetFunction():                                 ^ ; return
    ...         +---------|-> ...                  |      ... Original beginning ...
    ret --------+         |   ret -----------------+      ... of TargetFunction ...
                          +------------------------------ jmp Continuation
-   
 ```
-### 🧱 Trampolines:
-#### Types:
-* `E9 44 33 22 11  |  jmp 0x11223344` - Relative jump to the +-2Gb
-* `FF 25 00 00 00 00 88 77 66 55 44 33 22 11  |  jmp [rip+00h]` - Absolute jump to the address stored after the jmp as raw bytes (4 bytes in x32 and 8 bytes in x64)
-#### x32:
-* `jmp rel Interceptor` only one
-#### x64:
-* `jmp rel Interceptor` if Abs(Interceptor - Target) <= 2Gb
-* `jmp rel Intermediate -> jmp abs Interceptor` if Abs(Interceptor - Target) > 2Gb and we have free space for the intermediate trampoline buffer
-* `jmp abs Interceptor` if we have no free space for the intermediate buffer in +- 2Gb interval
-### 🧵 Using:
-Open the `HookLib.sln` and build it.  
-Add `Zydis.lib`, `HookLib.lib` and `HookLib.h` to your project.
+### 🧵 Trampolines:
+Supported trampolines:
+```assembly
+Jump to a relative offset:
+E9 44 33 22 11  |  jmp rip+0x11223344 ; Relative jump to ±2Gb only
+
+Jump to an absolute address (x32):
+FF 25 00 00 00 00  | jmp [eip+00h]
+44 33 22 11        | <- EIP is points to
+
+Jump to an absolute address (x64):
+FF 25 00 00 00 00        | jmp [rip+00h]
+88 77 66 55 44 33 22 11  | <- RIP is points to
+```
+Trampolines selection logic:
 ```cpp
-#include <cstdio>
-
-#include <Windows.h>
-
-#include <HookLib.h>
-#pragma comment(lib, "Zydis.lib")
-#pragma comment(lib, "HookLib.lib")
-
-using _ExitProcess = VOID(WINAPI*)(ULONG ExitCode);
-_ExitProcess OriginalExitProcess = NULL;
-VOID WINAPI ExitProcessHook(ULONG ExitCode)
+if (relative_jumpable(fn, handler))
 {
-    printf("ExitCode: %ul\r\n", ExitCode);
-    RemoveHook(OriginalExitProcess);
-    ExitProcess(0);
+    set_relative_jump(fn, handler);
+}
+else
+{
+    /*
+        'Intermediate' is an intermediate buffer that allocates
+        in the same block with the function beginning:
+    */
+    if (relative_jumpable(fn, intermediate))
+    {
+        set_relative_jump(fn, intermediate);
+        set_absolute_jump(intermediate, handler); 
+    }
+    else
+    {
+        set_absolute_jump(fn, handler);
+    }
+}
+```
+### 🪡 Using:
+Add the **HookLib.vcxproj** to your **.sln** and add the reference to the HookLib project into your project references list as described [here](https://docs.microsoft.com/en-us/troubleshoot/cpp/add-references-managed): select project, open the project menu, click **Add -> Reference** and select the HookLib.  
+Then add **./HookLib/HookLib/** folder to your header folders list and you're good to go.
+```cpp
+#include <HookLib.h>
+
+int func(int a, int b)
+{
+    return a + b;
+}
+
+int handler(int a, int b)
+{
+    return a * b;
+}
+
+template <typename Fn>
+Fn hookFunc(Fn fn, Fn handler)
+{
+    return static_cast<Fn>(hook(fn, handler));
+}
+
+void testSimpleHook()
+{
+    const auto orig = hookFunc(func, handler);
+    
+    assert(func(2, 3) == 6); // Hooked, the 'handler' will be called instead
+    assert(orig(2, 3) == 5);
+    
+    unhook(orig);
+
+    assert(func(2, 3) == 5);
+}
+
+void testCppHelpers()
+{
+    const auto holder = HookFactory::install(func, handler);
+    assert(func(2, 3) == 6);
+    assert(holder.call(2, 3) == 5);
 }
 
 int main()
 {
-    PVOID Target = GetProcAddress(GetModuleHandle(L"kernel32.dll"), "ExitProcess");
-    SetHook(Target, ExitProcessHook, reinterpret_cast<PVOID*>(&OriginalExitProcess));
-    ExitProcess(0);
+    testSimpleHook();
+    testCppHelpers();
+
     return 0;
 }
 ```

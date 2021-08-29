@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ImportGroup Label="PropertySheets" />
+  <PropertyGroup Label="UserMacros">
+    <PropSheetPath>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))</PropSheetPath>
+  </PropertyGroup>
+  <PropertyGroup>
+    <_PropertySheetDisplayName>HookLib-Km-Release-x32</_PropertySheetDisplayName>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(PropSheetPath)..\HookLib\HookLib;$(PropSheetPath)..\HookLib\Zydis\include</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories>..\HookLib\Zydis\msvc\bin\ReleaseX86Kernel;..\HookLib\bin\Km\x32\Release</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <BuildMacro Include="PropSheetPath">
+      <Value>$(PropSheetPath)</Value>
+    </BuildMacro>
+  </ItemGroup>
+</Project>

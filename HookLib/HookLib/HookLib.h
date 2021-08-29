@@ -1,102 +1,199 @@
 #pragma once
 
 #ifdef __cplusplus
-#define HOOKLIB_EXPORT extern "C"
+    #include <utility>
+    #include <cstddef>
+    #define hooklib_export extern "C"
 #else
-#define HOOKLIB_EXPORT
+    #include <stddef.h>
+    #define hooklib_export
 #endif
+
+typedef struct
+{
+    void* fn;
+    const void* handler;
+    void* original; // hook() makes it valid callable pointer after successful hook and sets as nullptr otherwise
+} Hook;
+
+typedef struct
+{
+    void* original; // unhook() makes it nullptr after successful unhook and keeps unchanged otherwise
+} Unhook;
+
+hooklib_export void* hook(void* fn, const void* handler);
+hooklib_export size_t multihook(Hook* hooks, size_t count);
+
+hooklib_export size_t multiunhook(Unhook* originals, size_t count);
+hooklib_export size_t unhook(void* original);
 
 #ifndef _KERNEL_MODE
-HOOKLIB_EXPORT HMODULE _GetModuleHandle(LPCWSTR ModuleName);
-HOOKLIB_EXPORT PVOID _GetProcAddress(HMODULE hModule, LPCSTR FunctionName);
-#define QueryProcAddress(LibName, FuncName) _GetProcAddress(_GetModuleHandle(LibName), FuncName)
+hooklib_export void* lookupModule(const wchar_t* modName); // LdrGetDllHandle
+hooklib_export void* lookupFunction(const void* hModule, const char* funcName); // LdrGetProcedureAddress
 #endif
 
-HOOKLIB_EXPORT BOOLEAN NTAPI SetHook(void* Target, const void* Interceptor, void** Original);
-HOOKLIB_EXPORT BOOLEAN NTAPI RemoveHook(void* Original);
-
 #ifdef __cplusplus
-#define Hook(RetType, Convention, FuncName, FuncAddress, InitialStatus, ...) \
-typedef RetType (Convention *FuncName##Type)(__VA_ARGS__);\
-static RetType Convention FuncName##Handler(__VA_ARGS__); \
-static HookStorage<FuncName##Type> FuncName##Hook(FuncAddress, &FuncName##Handler, InitialStatus); \
-static RetType Convention FuncName##Handler(__VA_ARGS__)
+template <typename Fn>
+class HookHolder
+{
+protected:
+    Fn m_orig;
+    Fn m_fn;
+    Fn m_handler;
 
-#define HookKnown(RetType, Convention, Func, ...) \
-Hook(RetType, Convention, Func, &Func, TRUE, __VA_ARGS__)
-
-#define HookImport(RetType, Convention, Lib, Func, ...) \
-Hook(RetType, Convention, Func, (RetType(Convention*)(__VA_ARGS__))QueryProcAddress(L##Lib, #Func), TRUE, __VA_ARGS__)
-
-#define DeclareHookKnown(RetType, Convention, Func, ...) \
-Hook(RetType, Convention, Func, &Func, FALSE, __VA_ARGS__)
-
-#define DeclareHookImport(RetType, Convention, Lib, Func, ...) \
-Hook(RetType, Convention, Func, (RetType(Convention*)(__VA_ARGS__))QueryProcAddress(L##Lib, #Func), FALSE, __VA_ARGS__)
-
-#define DeclareHook(RetType, Convention, Func, ...) \
-Hook(RetType, Convention, Func, (RetType(Convention*)(__VA_ARGS__))NULL, FALSE, __VA_ARGS__)
-
-#define CallOriginal(Func) (Func##Hook.Original)
-
-#define HookObject(Func) (Func##Hook)
-#define EnableHook(Func) HookObject(Func).Enable()
-#define DisableHook(Func) HookObject(Func).Disable()
-#define IsHookEnabled(Func) HookObject(Func).GetState()
-#define SetHookTarget(Func, Target) HookObject(Func).ReinitTarget((Func##Type)Target)
-#define ApplyHook(Func, Target) \
-SetHookTarget(Func, Target); \
-EnableHook(Func)
-
-template<typename T>
-class HookStorage {
-private:
-    T m_Target;
-    T m_Interceptor;
-    T m_Original;
-    BOOLEAN m_State;
 public:
-    inline T GetOriginal() const {
-        return m_Original;
-    }
-    __declspec(property(get = GetOriginal)) T Original;
-    
-    HookStorage() = delete;
-    HookStorage(const HookStorage&) = delete;
-    HookStorage(HookStorage&&) = delete;
-    HookStorage& operator = (const HookStorage&) = delete;
-    HookStorage& operator = (HookStorage&&) = delete;
+    HookHolder() = default;
 
-    HookStorage(T Target, T Interceptor, BOOLEAN InitialState)
-        : m_Target(Target), m_Interceptor(Interceptor), m_Original(NULL), m_State(FALSE)
+    HookHolder(Fn fn, Fn handler) noexcept : m_orig(nullptr), m_fn(fn), m_handler(handler)
     {
-        if (Target && InitialState) Enable();
     }
 
-    ~HookStorage() {
-        Disable();
+    HookHolder(const HookHolder&) = delete;
+
+    HookHolder(HookHolder&& holder) noexcept
+        : m_orig(std::exchange(holder.m_orig, nullptr))
+        , m_fn(std::exchange(holder.m_fn, nullptr))
+        , m_handler(std::exchange(holder.m_handler, nullptr))
+    {
     }
 
-    BOOLEAN ReinitTarget(T Target) {
-        if (!Target) return FALSE;
-        if (m_State) return FALSE;
-        m_Target = Target;
-        return TRUE;
+    HookHolder& operator = (const HookHolder&) = delete;
+
+    HookHolder& operator = (HookHolder&& holder) noexcept
+    {
+        if (&holder == this)
+        {
+            return *this;
+        }
+
+        disable();
+
+        m_orig = std::exchange(holder.m_orig, nullptr);
+        m_fn = std::exchange(holder.m_fn, nullptr);
+        m_handler = std::exchange(holder.m_handler, nullptr);
+
+        return *this;
     }
 
-    BOOLEAN Enable() {
-        if (!m_Target) return FALSE;
-        if (m_State) return TRUE;
-        return m_State = SetHook(m_Target, m_Interceptor, reinterpret_cast<LPVOID*>(&m_Original));
+    ~HookHolder() noexcept
+    {
+        if (active())
+        {
+            disable();
+        }
     }
 
-    BOOLEAN Disable() {
-        if (!m_State) return TRUE;
-        return m_State = !RemoveHook(m_Original);
+    bool valid() const noexcept
+    {
+        return m_fn && m_handler;
     }
 
-    inline BOOLEAN GetState() const {
-        return m_State;
+    bool active() const noexcept
+    {
+        return m_orig != nullptr;
+    }
+
+    bool enable() noexcept
+    {
+        if (!valid())
+        {
+            return false;
+        }
+
+        if (active())
+        {
+            return true;
+        }
+
+        m_orig = static_cast<Fn>(hook(m_fn, m_handler));
+
+        return m_orig != nullptr;
+    }
+
+    bool disable() noexcept
+    {
+        if (!valid())
+        {
+            return false;
+        }
+
+        if (!active())
+        {
+            return true;
+        }
+
+        const bool unhookStatus = (unhook(m_orig) == 1);
+        if (unhookStatus)
+        {
+            m_orig = nullptr;
+        }
+
+        return unhookStatus;
+    }
+
+    Fn detach() noexcept
+    {
+        return std::exchange(m_orig, nullptr);
+    }
+
+    Fn original() const noexcept
+    {
+        return m_orig;
+    }
+
+    Fn fn() const noexcept
+    {
+        return m_fn;
+    }
+
+    Fn handler() const noexcept
+    {
+        return m_handler;
+    }
+
+#ifdef _MSC_VER
+    __declspec(property(get = original)) Fn call;
+#endif
+};
+
+struct HookFactory
+{
+    template <typename Fn>
+    [[nodiscard]] static HookHolder<Fn> install(Fn fn, Fn handler) noexcept
+    {
+        HookHolder hook(fn, handler);
+        hook.enable();
+        return hook;
+    }
+
+    template <typename Fn>
+    [[nodiscard]] static HookHolder<Fn> install(void* fn, Fn handler) noexcept
+    {
+        return install<Fn>(static_cast<Fn>(fn), handler);
+    }
+
+    template <typename Fn>
+    [[nodiscard]] static HookHolder<Fn> install(void* mod, const char* const funcName, Fn handler) noexcept
+    {
+        if (!mod)
+        {
+            return HookHolder<Fn>(nullptr, handler);
+        }
+
+        void* const fn = lookupFunction(mod, funcName);
+        if (!fn)
+        {
+            return HookHolder<Fn>(nullptr, handler);
+        }
+
+        return install<Fn>(static_cast<Fn>(fn), handler);
+    }
+
+    template <typename Fn>
+    [[nodiscard]] static HookHolder<Fn> install(const wchar_t* const modName, const char* const funcName, Fn handler) noexcept
+    {
+        const void* const mod = lookupModule(modName);
+        return install<Fn>(mod, funcName, handler);
     }
 };
 #endif
