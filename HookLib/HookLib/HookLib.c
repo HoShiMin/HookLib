@@ -2391,6 +2391,7 @@ size_t multihook(Hook* hooks, size_t count)
     ProcInfo* const currentProcess = (ProcInfo*)findCurrentProcess(snapshot);
     if (!currentProcess)
     {
+        freeProcSnapshot(snapshot);
         return 0;
     }
 
@@ -2443,6 +2444,7 @@ size_t multihook(Hook* hooks, size_t count)
         ProcInfo* const currentProcess = (ProcInfo*)findCurrentProcess(snapshot);
         if (!currentProcess)
         {
+            freeProcSnapshot(snapshot);
             return 0;
         }
 
@@ -2553,6 +2555,7 @@ size_t multiunhook(Unhook* originals, size_t count)
     ProcInfo* const currentProcess = (ProcInfo*)findCurrentProcess(snapshot);
     if (!currentProcess)
     {
+        freeProcSnapshot(snapshot);
         return 0;
     }
 
@@ -2626,6 +2629,7 @@ size_t multiunhook(Unhook* originals, size_t count)
         ProcInfo* const currentProcess = (ProcInfo*)findCurrentProcess(snapshot);
         if (!currentProcess)
         {
+            freeProcSnapshot(snapshot);
             return 0;
         }
 
@@ -2687,9 +2691,9 @@ size_t multiunhook(Unhook* originals, size_t count)
             }
         }
 
-        endKernelHookSession();
-
         _mm_sfence();
+
+        endKernelHookSession();
     }
 
     return unhookedCount;

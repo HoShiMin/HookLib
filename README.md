@@ -66,7 +66,7 @@ else
     }
 }
 ```
-### 🪡 Using:
+### 🪡 Usage:
 Add the **HookLib.vcxproj** to your **.sln** and add the reference to the HookLib project into your project references list as described [here](https://docs.microsoft.com/en-us/troubleshoot/cpp/add-references-managed): select project, open the project menu, click **Add -> Reference** and select the HookLib.  
 Then add **./HookLib/HookLib/** folder to your header folders list and you're good to go.
 ```cpp
