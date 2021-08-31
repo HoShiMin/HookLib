@@ -1,7 +1,6 @@
 #pragma once
 
 #ifdef __cplusplus
-    #include <utility>
     #include <cstddef>
     #define hooklib_export extern "C"
 #else
@@ -36,6 +35,18 @@ hooklib_export void* lookupFunction(const void* hModule, const char* funcName); 
 template <typename Fn>
 class HookHolder
 {
+private:
+    struct tr
+    {
+        template <class Type, class Other = Type>
+        static constexpr Type exchange(Type& val, Other&& newVal)
+        {
+            const Type oldVal = static_cast<Type&&>(val);
+            val = static_cast<Other&&>(newVal);
+            return oldVal;
+        }
+    };
+
 protected:
     Fn m_orig;
     Fn m_fn;
@@ -51,9 +62,9 @@ public:
     HookHolder(const HookHolder&) = delete;
 
     HookHolder(HookHolder&& holder) noexcept
-        : m_orig(std::exchange(holder.m_orig, nullptr))
-        , m_fn(std::exchange(holder.m_fn, nullptr))
-        , m_handler(std::exchange(holder.m_handler, nullptr))
+        : m_orig(tr::exchange(holder.m_orig, nullptr))
+        , m_fn(tr::exchange(holder.m_fn, nullptr))
+        , m_handler(tr::exchange(holder.m_handler, nullptr))
     {
     }
 
@@ -68,9 +79,9 @@ public:
 
         disable();
 
-        m_orig = std::exchange(holder.m_orig, nullptr);
-        m_fn = std::exchange(holder.m_fn, nullptr);
-        m_handler = std::exchange(holder.m_handler, nullptr);
+        m_orig = tr::exchange(holder.m_orig, nullptr);
+        m_fn = tr::exchange(holder.m_fn, nullptr);
+        m_handler = tr::exchange(holder.m_handler, nullptr);
 
         return *this;
     }
@@ -133,7 +144,7 @@ public:
 
     Fn detach() noexcept
     {
-        return std::exchange(m_orig, nullptr);
+        return tr::exchange(m_orig, nullptr);
     }
 
     Fn original() const noexcept
@@ -172,6 +183,7 @@ struct HookFactory
         return install<Fn>(static_cast<Fn>(fn), handler);
     }
 
+#ifndef _KERNEL_MODE
     template <typename Fn>
     [[nodiscard]] static HookHolder<Fn> install(void* mod, const char* const funcName, Fn handler) noexcept
     {
@@ -195,5 +207,6 @@ struct HookFactory
         const void* const mod = lookupModule(modName);
         return install<Fn>(mod, funcName, handler);
     }
+#endif
 };
 #endif
