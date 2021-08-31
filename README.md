@@ -14,7 +14,7 @@
 * Extremely reduced allocations, processes/threads enumerations and handles manipulations count
 * Multihook/multiunhook support that hooks/unhooks multiple functions in one session
 * Extremely reduced memory consumption for usermode hooks: one hook page (4Kb) can hold 39 cells for nearest hooks that removes the need to allocate one page per each hook
-* Support of KM->UM hooks (even with support of contexts fixup directly from kernelmode):
+* Support for KM->UM hooks (even with support for contexts fixup directly from kernelmode):
   * KM:Amd64 -> UM:Amd64
   * KM:Amd64 -> UM:Wow64
   * KM:i386 -> UM:i386
