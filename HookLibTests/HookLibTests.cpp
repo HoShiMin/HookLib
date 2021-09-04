@@ -7,6 +7,14 @@
 
 constexpr bool k_testKernelMode = false;
 
+#define hooks_sec_name ".hooks"
+#pragma section(hooks_sec_name, read, execute)
+#pragma comment(linker, "/SECTION:" hooks_sec_name ",RWE")
+
+#define place_to(sec_name)  __declspec(allocate(sec_name))
+
+#define hook_storage  place_to(hooks_sec_name)
+
 namespace
 {
 
@@ -50,6 +58,23 @@ void testHookOnce()
 
     unhook(orig0);
     func<0>(0, 0.0f);
+
+    end_test;
+}
+
+hook_storage HookData g_extHook{};
+
+void testExtHook()
+{
+    begin_test;
+
+    func<0>(123, 0.123f);
+    const auto orig0 = static_cast<decltype(func<0>)*>(exthook(&g_extHook, func<0>, handler<0>));
+    func<0>(111, 0.111f);
+    orig0(222, 0.222f);
+
+    unhook(orig0);
+    func<0>(333, 0.333f);
 
     end_test;
 }
@@ -413,6 +438,7 @@ void runDriverTests()
 void runTests()
 {
     testHookOnce();
+    testExtHook();
     testSerialHooks();
     testSerialHooksMultiunhook();
     testMultihook();
@@ -427,7 +453,7 @@ void runTests()
 
 } // namespace
 
-auto g_holder = HookFactory::install(func<0>, handler<0>);
+const auto g_holder = HookFactory::install(func<0>, handler<0>);
 
 int main()
 {

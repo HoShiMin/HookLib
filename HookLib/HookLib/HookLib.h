@@ -8,11 +8,48 @@
     #define hooklib_export
 #endif
 
+#pragma pack(push, 1)
+typedef struct
+{
+    unsigned char opcode; // E9          |
+    unsigned long offset; // 44 33 22 11 | jmp rip+0x11223344 
+} RelJump;
+
+typedef struct
+{
+    unsigned short opcode; // FF 25       |
+    unsigned long offset;  // 00 00 00 00 | jmp [rip+00h]
+    unsigned long address; // 44 33 22 11 | <-- RIP is points to
+} LongJump32;
+
+typedef struct
+{
+    unsigned short opcode;      // FF 25                   |
+    unsigned long offset;       // 00 00 00 00             | jmp [rip+00h]
+    unsigned long long address; // 77 66 55 44 33 22 11 00 | <-- RIP is points to
+} LongJump64;
+#pragma pack(pop)
+
+typedef struct
+{
+    unsigned char beginning[48];
+    unsigned char original[32];
+    void* fn;
+    union
+    {
+        LongJump64 x64;
+        LongJump32 x32;
+    } intermediate;
+    unsigned char affectedBytes;
+    unsigned char indexInPage; // 0xFF if it is an external storage
+} HookData;
+
 typedef struct
 {
     void* fn;
     const void* handler;
     void* original; // hook() makes it valid callable pointer after successful hook and sets as nullptr otherwise
+    HookData* cell;
 } Hook;
 
 typedef struct
@@ -21,10 +58,11 @@ typedef struct
 } Unhook;
 
 hooklib_export void* hook(void* fn, const void* handler);
+hooklib_export void* exthook(HookData* storage, void* fn, const void* handler);
 hooklib_export size_t multihook(Hook* hooks, size_t count);
 
-hooklib_export size_t multiunhook(Unhook* originals, size_t count);
 hooklib_export size_t unhook(void* original);
+hooklib_export size_t multiunhook(Unhook* originals, size_t count);
 
 #ifndef _KERNEL_MODE
 hooklib_export void* lookupModule(const wchar_t* modName); // LdrGetDllHandle

@@ -71,6 +71,8 @@ typedef unsigned char bool;
 #define k_forceLongJumps           false
 #define k_enableIntermediateJumps  true
 
+#define k_externalStorageCellNumber ((unsigned char)0xFF)
+
 // 'WRK' is the custom prefix to bypass these structs redeclaration error:
 
 typedef struct
@@ -695,27 +697,6 @@ static void freeUser(void* base)
 
 
 
-#pragma pack(push, 1)
-typedef struct
-{
-    unsigned char opcode; // E9          |
-    unsigned long offset; // 44 33 22 11 | jmp rip+0x11223344 
-} RelJump;
-
-typedef struct
-{
-    unsigned short opcode; // FF 25       |
-    unsigned long offset;  // 00 00 00 00 | jmp [rip+00h]
-    unsigned long address; // 44 33 22 11 | <-- RIP is points to
-} LongJump32;
-
-typedef struct
-{
-    unsigned short opcode;      // FF 25                   |
-    unsigned long offset;       // 00 00 00 00             | jmp [rip+00h]
-    unsigned long long address; // 77 66 55 44 33 22 11 00 | <-- RIP is points to
-} LongJump64;
-#pragma pack(pop)
 
 static RelJump makeRelJump(const void* from, const void* to)
 {
@@ -751,19 +732,6 @@ static LongJump64 makeLongJump64(const void* dest)
 }
 
 
-typedef struct
-{
-    unsigned char beginning[48];
-    unsigned char original[32];
-    void* fn;
-    union
-    {
-        LongJump64 x64;
-        LongJump32 x32;
-    } intermediate;
-    unsigned char affectedBytes;
-    unsigned char indexInPage;
-} HookData;
 
 #if _KERNEL_MODE
 typedef unsigned long long Magic;
@@ -2369,8 +2337,37 @@ static size_t applyHooks(Arch arch, Hook* hooks, size_t count)
     return hookedCount;
 }
 
+static size_t applyExtHooks(const Arch arch, Hook* const hooks, const size_t count)
+{
+    size_t hookedCount = 0;
+
+    for (size_t i = 0; i < count; ++i)
+    {
+        Hook* const hook = &hooks[i];
+        
+        hook->cell->indexInPage = k_externalStorageCellNumber;
+
+        const bool hookStatus = applyHook(arch, hook->cell, hook->fn, hook->handler);
+        if (!hookStatus)
+        {
+            continue;
+        }
+
+        hook->original = hook->cell->beginning;
+#if _KERNEL_MODE
+        _mm_clflush(hook->fn);
+#endif
+        ++hookedCount;
+    }
+
+    _mm_sfence();
+
+    return hookedCount;
+}
+
+
 #if _USER_MODE
-size_t multihook(Hook* hooks, size_t count)
+size_t multihook(Hook* const hooks, const size_t count)
 {
     if (!hooks || !count)
     {
@@ -2402,7 +2399,9 @@ size_t multihook(Hook* hooks, size_t count)
         return 0;
     }
 
-    const size_t hookedCount = applyHooks(native, hooks, count);
+    const size_t hookedCount = hooks->cell
+        ? applyExtHooks(native, hooks, count)
+        : applyHooks(native, hooks, count);
 
     const HooksUnhooks hooksUnhooks = { .hooks = hooks };
     fixupContexts(currentProcess, hooksUnhooks, count, fixForHook);
@@ -2413,7 +2412,7 @@ size_t multihook(Hook* hooks, size_t count)
     return hookedCount;
 }
 #else
-size_t multihook(Hook* hooks, size_t count)
+size_t multihook(Hook* const hooks, const size_t count)
 {
     if (!hooks || !count)
     {
@@ -2461,7 +2460,9 @@ size_t multihook(Hook* hooks, size_t count)
         const Arch k_arch = x32;
 #endif
 
-        const size_t hookedCount = applyHooks(k_arch, hooks, count);
+        const size_t hookedCount = hooks->cell
+            ? applyHooks(k_arch, hooks, count)
+            : applyExtHooks(k_arch, hooks, count);
 
         const HooksUnhooks hooksUnhooks = { .hooks = hooks };
         fixupContexts(currentProcess, hooksUnhooks, count, fixForHook);
@@ -2482,7 +2483,7 @@ size_t multihook(Hook* hooks, size_t count)
 }
 #endif
 
-void* hook(void* fn, const void* handler)
+void* hook(void* const fn, const void* const handler)
 {
     if (!fn)
     {
@@ -2493,21 +2494,39 @@ void* hook(void* fn, const void* handler)
     {
         .fn = fn,
         .handler = handler,
-        .original = nullptr
+        .original = nullptr,
+        .cell = nullptr
     };
-    
+
     multihook(&hook, 1);
-    
+
     return hook.original;
 }
 
-static bool performUnhook(HookData* hook)
+
+void* exthook(HookData* const storage, void* const fn, const void* const handler)
 {
-    if (!hook)
+    if (!storage || !fn)
     {
-        return false;
+        return nullptr;
     }
 
+    Hook hook =
+    {
+        .fn = fn,
+        .handler = handler,
+        .original = nullptr,
+        .cell = storage
+    };
+
+    multihook(&hook, 1);
+
+    return hook.original;
+}
+
+
+static bool performUnhook(HookData* const hook)
+{
     const bool writeStatus = writeToReadonly(hook->fn, hook->original, hook->affectedBytes);
     if (!writeStatus)
     {
@@ -2538,8 +2557,14 @@ static bool performUnhook(HookData* hook)
     return true;
 }
 
+static bool performExtUnhook(HookData* const hook)
+{
+    const bool writeStatus = writeToReadonly(hook->fn, hook->original, hook->affectedBytes);
+    return writeStatus;
+}
+
 #if _USER_MODE
-size_t multiunhook(Unhook* originals, size_t count)
+size_t multiunhook(Unhook* const originals, const size_t count)
 {
     if (!originals || !count)
     {
@@ -2580,7 +2605,10 @@ size_t multiunhook(Unhook* originals, size_t count)
 
         HookData* const hook = (HookData*)((unsigned char*)originals[i].original - offsetof(HookData, beginning));
 
-        const bool status = performUnhook(hook);
+        const bool status = (hook->indexInPage == k_externalStorageCellNumber)
+            ? performExtUnhook(hook)
+            : performUnhook(hook);
+
         if (status)
         {
             originals[i].original = nullptr;
@@ -2597,7 +2625,7 @@ size_t multiunhook(Unhook* originals, size_t count)
     return unhookedCount;
 }
 #elif _KERNEL_MODE
-size_t multiunhook(Unhook* originals, size_t count)
+size_t multiunhook(Unhook* const originals, const size_t count)
 {
     if (!originals || !count)
     {
@@ -2653,7 +2681,10 @@ size_t multiunhook(Unhook* originals, size_t count)
             HookData* const hook = (HookData*)((unsigned char*)originals[i].original - offsetof(HookData, beginning));
             const void* const fn = hook->fn;
 
-            const bool status = performUnhook(hook);
+            const bool status = (hook->indexInPage == k_externalStorageCellNumber)
+                ? performExtUnhook(hook)
+                : performUnhook(hook);
+
             if (status)
             {
                 _mm_clflush(fn);
@@ -2682,7 +2713,10 @@ size_t multiunhook(Unhook* originals, size_t count)
             HookData* const hook = (HookData*)((unsigned char*)originals[i].original - offsetof(HookData, beginning));
             const void* const fn = hook->fn;
 
-            const bool status = performUnhook(hook);
+            const bool status = (hook->indexInPage == k_externalStorageCellNumber)
+                ? performExtUnhook(hook)
+                : performUnhook(hook);
+
             if (status)
             {
                 _mm_clflush(fn);
@@ -2700,7 +2734,7 @@ size_t multiunhook(Unhook* originals, size_t count)
 }
 #endif
 
-size_t unhook(void* original)
+size_t unhook(void* const original)
 {
     Unhook fn = { .original = original };
     return multiunhook(&fn, 1);
