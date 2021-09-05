@@ -71,6 +71,8 @@ typedef unsigned char bool;
 #define k_forceLongJumps           false
 #define k_enableIntermediateJumps  true
 
+#define bits(type) (sizeof(type) * 8)
+
 // 'WRK' is the custom prefix to bypass these structs redeclaration error:
 
 typedef struct
@@ -588,7 +590,7 @@ typedef struct
     void* const addr;
 } Mapping;
 
-static Mapping makeWriteableMapping(void* const addr, unsigned long size)
+static Mapping makeWriteableMapping(void* const addr, unsigned int size)
 {
     const PMDL mdl = IoAllocateMdl(addr, size, false, false, nullptr);
     if (!mdl)
@@ -655,7 +657,7 @@ static void freeMapping(Mapping* const mapping)
 }
 #endif
 
-static void* allocUser(void* base, size_t size, unsigned long protect)
+static void* allocUser(void* base, size_t size, unsigned int protect)
 {
     const NTSTATUS status = ZwAllocateVirtualMemory(
         NtCurrentProcess(),
@@ -723,7 +725,7 @@ typedef struct
 
 static RelJump makeRelJump(const void* from, const void* to)
 {
-    const unsigned long delta = (unsigned long)((size_t)to - ((size_t)from + sizeof(RelJump)));
+    const unsigned int delta = (unsigned int)((size_t)to - ((size_t)from + sizeof(RelJump)));
     const RelJump jump =
     {
         .opcode = 0xE9,
@@ -1031,7 +1033,7 @@ static ProcInfo* makeProcSnapshot()
 
     while (1)
     {
-        const unsigned long k_additionalSize = 4096 * 5;
+        const unsigned int k_additionalSize = 4096 * 5;
         len += k_additionalSize;
         info = allocUser(nullptr, len, PAGE_READWRITE);
         if (!info)
@@ -1134,7 +1136,7 @@ static EnumStatus forEachThread(const ProcInfo* const proc, EnumAction(*const cb
 
     EnumStatus enumStatus = completed;
 
-    for (unsigned long i = 0; i < proc->NumberOfThreads; ++i)
+    for (unsigned int i = 0; i < proc->NumberOfThreads; ++i)
     {
         const EnumAction action = cb(proc, &proc->Threads[i], arg);
         if (action == stop)
@@ -1586,7 +1588,7 @@ static void endKernelHookSession()
 
 static void* findPageForRelativeJump(const void* addr)
 {
-    const unsigned long k_granularity = 64 * 1024;
+    const unsigned int k_granularity = 64 * 1024;
 
     unsigned char* base = (unsigned char*)alignUp((size_t)addr, k_granularity);
 
@@ -1639,22 +1641,22 @@ static void relocate(void* const addr, ssize_t relocationDelta, unsigned char pa
 {
     switch (patchSizeInBits)
     {
-    case sizeof(char) * 8:
+    case bits(char):
     {
         *(char*)(addr) -= (char)relocationDelta;
         break;
     }
-    case sizeof(short) * 8:
+    case bits(short):
     {
         *(short*)(addr) -= (short)relocationDelta;
         break;
     }
-    case sizeof(int) * 8:
+    case bits(int):
     {
         *(int*)(addr) -= (int)relocationDelta;
         break;
     }
-    case sizeof(long long) * 8:
+    case bits(long long):
     {
         *(long long*)(addr) -= (long long)relocationDelta;
         break;
@@ -1737,7 +1739,7 @@ static unsigned char relocateBeginning(Arch arch, const void* from, void* to, un
 }
 
 
-static bool writeToUser(void* const dest, const void* const src, unsigned long size)
+static bool writeToUser(void* const dest, const void* const src, unsigned int size)
 {
     const unsigned int prevProtect = protectUser(dest, size, PAGE_EXECUTE_READWRITE);
     if (!prevProtect)
@@ -1752,7 +1754,7 @@ static bool writeToUser(void* const dest, const void* const src, unsigned long s
 }
 
 #if _KERNEL_MODE
-static bool writeToKernel(void* const dest, const void* const src, const unsigned long size)
+static bool writeToKernel(void* const dest, const void* const src, const unsigned int size)
 {
     Mapping mapping = makeWriteableMapping(dest, size);
     if (!isMappingValid(&mapping))
@@ -1767,7 +1769,7 @@ static bool writeToKernel(void* const dest, const void* const src, const unsigne
 }
 #endif
 
-static bool writeToReadonly(void* const dest, const void* const src, const unsigned long size)
+static bool writeToReadonly(void* const dest, const void* const src, const unsigned int size)
 {
 #if _USER_MODE
     const bool status = writeToUser(dest, src, size);
