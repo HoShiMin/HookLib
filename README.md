@@ -36,8 +36,8 @@ Jump to a relative offset:
 E9 44 33 22 11  |  jmp rip+0x11223344 ; Relative jump to ±2Gb only
 
 Jump to an absolute address (x32):
-FF 25 00 00 00 00  | jmp [eip+00h]
-44 33 22 11        | <- EIP is points to
+FF 25 44 33 22 11  | jmp ds:[0x11223344]
+NN NN NN NN        | <- 0x11223344 is points to
 
 Jump to an absolute address (x64):
 FF 25 00 00 00 00        | jmp [rip+00h]
