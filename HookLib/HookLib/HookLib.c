@@ -71,7 +71,7 @@ typedef unsigned char bool;
 #define k_forceLongJumps           false
 #define k_enableIntermediateJumps  true
 
-#define bits(type) (sizeof(type) * 8)
+#define bitsof(type) (sizeof(type) * 8)
 
 // 'WRK' is the custom prefix to bypass these structs redeclaration error:
 
@@ -1641,22 +1641,22 @@ static void relocate(void* const addr, ssize_t relocationDelta, unsigned char pa
 {
     switch (patchSizeInBits)
     {
-    case bits(char):
+    case bitsof(char):
     {
         *(char*)(addr) -= (char)relocationDelta;
         break;
     }
-    case bits(short):
+    case bitsof(short):
     {
         *(short*)(addr) -= (short)relocationDelta;
         break;
     }
-    case bits(int):
+    case bitsof(int):
     {
         *(int*)(addr) -= (int)relocationDelta;
         break;
     }
-    case bits(long long):
+    case bitsof(long long):
     {
         *(long long*)(addr) -= (long long)relocationDelta;
         break;
