@@ -699,20 +699,24 @@ static void freeUser(void* base)
 typedef struct
 {
     unsigned char opcode; // E9          |
-    unsigned long offset; // 44 33 22 11 | jmp rip+0x11223344 
+    unsigned int offset;  // 44 33 22 11 | jmp rip+0x11223344 
 } RelJump;
 
 typedef struct
 {
     unsigned short opcode; // FF 25       |
-    unsigned long offset;  // 00 00 00 00 | jmp [rip+00h]
-    unsigned long address; // 44 33 22 11 | <-- RIP is points to
+    unsigned int offset;   // 44 33 22 11 | jmp ds:[0x11223344] on x32 and jmp [rip+0x11223344] on x64
+} AbsJump;
+
+typedef struct
+{
+    AbsJump jmp;          // FF 25 44 33 22 11 | jmp ds:[0x11223344]
+    unsigned int address; // NN NN NN NN       | <-- 0x11223344 is points to
 } LongJump32;
 
 typedef struct
 {
-    unsigned short opcode;      // FF 25                   |
-    unsigned long offset;       // 00 00 00 00             | jmp [rip+00h]
+    AbsJump jmp;                // FF 25 00 00 00 00       | jmp [rip+00h]
     unsigned long long address; // 77 66 55 44 33 22 11 00 | <-- RIP is points to
 } LongJump64;
 #pragma pack(pop)
@@ -728,13 +732,16 @@ static RelJump makeRelJump(const void* from, const void* to)
     return jump;
 }
 
-static LongJump32 makeLongJump32(const void* dest)
+static LongJump32 makeLongJump32(const void* from, const void* to)
 {
     const LongJump32 jump =
     {
-        .opcode = 0x25FF,
-        .offset = 0x00000000,
-        .address = (unsigned long)((size_t)dest)
+        .jmp =
+        {
+            .opcode = 0x25FF,
+            .offset = (unsigned int)((size_t)from + sizeof(AbsJump))
+        },
+        .address = (unsigned int)((size_t)to)
     };
     return jump;
 }
@@ -743,8 +750,11 @@ static LongJump64 makeLongJump64(const void* dest)
 {
     const LongJump64 jump =
     {
-        .opcode = 0x25FF,
-        .offset = 0x00000000,
+        .jmp =
+        {
+            .opcode = 0x25FF,
+            .offset = 0x00000000
+        },
         .address = ((size_t)dest)
     };
     return jump;
@@ -1785,7 +1795,7 @@ static void writeJumpToContinuation(const Arch arch, void* const from, const voi
         }
         else
         {
-            *(LongJump32*)(from) = makeLongJump32(to);
+            *(LongJump32*)(from) = makeLongJump32(from, to);
         }
     }
 }
@@ -1835,7 +1845,7 @@ static bool applyHook(const Arch arch, HookData* const hook, void* const fn, con
 
             memcpy(hook->original, fn, relocatedBytes);
 
-            const LongJump32 jump = makeLongJump32(handler);
+            const LongJump32 jump = makeLongJump32(fn, handler);
             const bool status = writeToReadonly(fn, &jump, sizeof(jump));
             if (!status)
             {
@@ -1865,7 +1875,7 @@ static bool applyHook(const Arch arch, HookData* const hook, void* const fn, con
             }
             else
             {
-                hook->intermediate.x32 = makeLongJump32(handler);
+                hook->intermediate.x32 = makeLongJump32(fn, handler);
             }
 
             memcpy(hook->original, fn, relocatedBytes);
