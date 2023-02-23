@@ -5,7 +5,7 @@
 
 #include <string>
 
-constexpr bool k_testKernelMode = false;
+constexpr bool k_testKernelMode = true;
 
 namespace
 {
@@ -206,9 +206,11 @@ void testContextsFixup()
 
 void driverTestKernelHooks(HANDLE hDev)
 {
+    begin_test;
     unsigned long returned = 0;
     const bool testStatus = !!DeviceIoControl(hDev, CTL_CODE(0x8000, 0x800, METHOD_NEITHER, FILE_ANY_ACCESS), nullptr, 0, nullptr, 0, &returned, nullptr);
     hk_assert(testStatus);
+    end_test;
 }
 
 void driverTestUserHooks(HANDLE hDev)

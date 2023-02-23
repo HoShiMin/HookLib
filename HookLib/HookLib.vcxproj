@@ -39,13 +39,13 @@
     <ProjectGuid>{9379F9BC-7829-45D8-B339-90F6504FDF2B}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>HookLib</RootNamespace>
-    <WindowsTargetPlatformVersion>$([Microsoft.Build.Utilities.ToolLocationHelper]::GetLatestSDKTargetPlatformVersion('Windows', '10.0'))</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>$(LatestTargetPlatformVersion)</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Kernel|Win32'" Label="Configuration">
@@ -62,7 +62,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -81,7 +81,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Kernel|x64'" Label="Configuration">
@@ -89,7 +89,7 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>WindowsKernelModeDriver10.0</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <TargetVersion>Windows7</TargetVersion>
+    <TargetVersion>Windows10</TargetVersion>
     <DriverTargetPlatform>Desktop</DriverTargetPlatform>
     <SupportsPackaging>false</SupportsPackaging>
     <DriverType>WDM</DriverType>
@@ -98,7 +98,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -158,41 +158,49 @@
     <LinkIncremental>true</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Um\x32\Debug\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Kernel|Win32'">
     <LinkIncremental>true</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Km\x32\Debug\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <OutDir>bin\Um\x64\Debug\</OutDir>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug Kernel|x64'">
     <LinkIncremental>true</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Km\x64\Debug\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Um\x32\Release\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release Kernel|Win32'">
     <LinkIncremental>false</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Km\x32\Release\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Um\x64\Release\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release Kernel|x64'">
     <LinkIncremental>false</LinkIncremental>
     <IntDir>obj\$(ProjectName)-$(Platform)-$(Configuration)\</IntDir>
     <OutDir>bin\Km\x64\Release\</OutDir>
+    <PublicIncludeDirectories>.\Zydis\dependencies\zycore\include;.\Zydis\include;.\Zydis\msvc;.\HookLib</PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release Kernel HookLib1|x64'">
     <LinkIncremental>false</LinkIncremental>
@@ -213,6 +221,7 @@
       <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
       <TreatWarningAsError>true</TreatWarningAsError>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -234,6 +243,7 @@
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <IntrinsicFunctions>false</IntrinsicFunctions>
       <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -256,6 +266,7 @@
       <OmitFramePointers>false</OmitFramePointers>
       <TreatWarningAsError>true</TreatWarningAsError>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -277,6 +288,7 @@
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <IntrinsicFunctions>false</IntrinsicFunctions>
       <FavorSizeOrSpeed>Size</FavorSizeOrSpeed>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -300,6 +312,7 @@
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <TreatWarningAsError>true</TreatWarningAsError>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -324,6 +337,7 @@
       <AdditionalIncludeDirectories>.\Zydis\include;.\Zydis\msvc;.\Zydis\dependencies\zycore\include;$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -350,6 +364,7 @@
       <OmitFramePointers>false</OmitFramePointers>
       <TreatWarningAsError>true</TreatWarningAsError>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -374,6 +389,7 @@
       <AdditionalIncludeDirectories>.\Zydis\include;.\Zydis\msvc;.\Zydis\dependencies\zycore\include;$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

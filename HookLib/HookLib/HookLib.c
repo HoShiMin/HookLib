@@ -411,7 +411,11 @@ static const unsigned int k_poolTag = 'kooH';
 
 static void* allocKernel(size_t size)
 {
+#if (NTDDI_VERSION >= NTDDI_WIN10_VB)
+    void* const buf = ExAllocatePool2(POOL_FLAG_NON_PAGED_EXECUTE, size, k_poolTag);
+#else
     void* const buf = ExAllocatePoolWithTag(NonPagedPool, size, k_poolTag); // Always RWX
+#endif
     if (buf)
     {
         memset(buf, 0, size);
