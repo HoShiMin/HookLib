@@ -22,8 +22,11 @@
 
 #include <ntstatus.h>
 
-#define ZYDIS_STATIC_DEFINE
+#pragma warning(push)
+#pragma warning(disable: 4201) // Anonymous unions
+#define ZYDIS_STATIC_BUILD
 #include <Zydis/Zydis.h>
+#pragma warning(pop)
 
 #if !defined offsetof
     #define offsetof(s, m) ((size_t)&(((s*)0)->m))
@@ -1686,18 +1689,18 @@ static unsigned char relocateBeginning(Arch arch, const void* from, void* to, un
     ZydisDecoder decoder;
     if (arch == x64)
     {
-        ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_ADDRESS_WIDTH_64);
+        ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
     }
     else
     {
-        ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_ADDRESS_WIDTH_32);
+        ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LEGACY_32, ZYDIS_STACK_WIDTH_32);
     }
 
     unsigned char relocatedBytes = 0;
 
     const unsigned char* srcInstr = (const unsigned char*)from;
     ZydisDecodedInstruction instr;
-    while (ZYAN_SUCCESS(ZydisDecoderDecodeBuffer(&decoder, srcInstr, 16, &instr)))
+    while (ZYAN_SUCCESS(ZydisDecoderDecodeInstruction(&decoder, ZYAN_NULL, srcInstr, 16, &instr)))
     {
         unsigned char* const destInstr = (unsigned char*)to + (srcInstr - (const unsigned char*)from);
         memcpy(destInstr, srcInstr, instr.length);
