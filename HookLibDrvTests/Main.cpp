@@ -3,29 +3,33 @@
 
 #define hk_assert(cond) if (!(cond)) { __int2c(); } __assume((cond))
 
+extern "C" NTSTATUS NTAPI ZwYieldExecution();
+
 namespace
 {
     template <unsigned int index>
-    constexpr unsigned int validFunc(int a, int b)
+    constexpr inline unsigned int validFunc(int a, int b)
     {
         return 0x1ee7c0de * (a + b + index);
     }
 
     template <unsigned int index>
-    constexpr unsigned int validHandler(int a, int b)
+    constexpr inline unsigned int validHandler(int a, int b)
     {
         return 0xc0ffee * (a + b + index);
     }
 
     template <unsigned int index>
-    __declspec(noinline) unsigned int func(int a, int b)
+    __declspec(noinline) __declspec(dllexport) unsigned int func(int a, int b)
     {
+        ZwYieldExecution();
         return validFunc<index>(a, b);
     }
 
     template <unsigned int index>
-    __declspec(noinline) unsigned int handler(int a, int b)
+    __declspec(noinline) __declspec(dllexport) unsigned int handler(int a, int b)
     {
+        ZwYieldExecution();
         return validHandler<index>(a, b);
     }
 
@@ -87,7 +91,6 @@ namespace
         testHookOnce();
         testMultihook();
     }
-
 } // namespace
 
 
