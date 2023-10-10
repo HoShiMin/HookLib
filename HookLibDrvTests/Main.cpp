@@ -35,7 +35,8 @@ namespace
 
     void testHookOnce()
     {
-        const auto original = static_cast<decltype(func<0>)*>(hook(func<0>, handler<0>));
+        decltype(func<0>)* original = nullptr;
+        hook(func<0>, handler<0>, reinterpret_cast<void**>(&original));
         hk_assert(func<0>(11, 22) == validHandler<0>(11, 22));
         hk_assert(original(11, 22) == validFunc<0>(11, 22));
         
@@ -46,40 +47,43 @@ namespace
 
     void testMultihook()
     {
+        void* originals[2]{};
         Hook hooks[]
         {
             {
                 .fn = func<1>,
-                .handler = handler<1>
+                .handler = handler<1>,
+                .original = &originals[0]
             },
             {
                 .fn = func<2>,
-                .handler = handler<2>
+                .handler = handler<2>,
+                .original = &originals[1]
             }
         };
 
         const auto hookedCount = multihook(hooks, 2);
         hk_assert(hookedCount == 2);
 
-        hk_assert(hooks[0].original && hooks[1].original);
+        hk_assert(originals[0] && originals[1]);
 
         using Fn1 = decltype(func<1>)*;
         using Fn2 = decltype(func<2>)*;
 
-        const Fn1 orig1 = static_cast<Fn1>(hooks[0].original);
-        const Fn2 orig2 = static_cast<Fn1>(hooks[1].original);
+        const Fn1 orig1 = static_cast<Fn1>(originals[0]);
+        const Fn2 orig2 = static_cast<Fn1>(originals[1]);
 
         hk_assert(func<1>(11, 22) == validHandler<1>(11, 22));
         hk_assert(func<2>(11, 22) == validHandler<2>(11, 22));
         hk_assert(orig1(11, 22) == validFunc<1>(11, 22));
         hk_assert(orig2(11, 22) == validFunc<2>(11, 22));
 
-        Unhook originals[]
+        Unhook unhooks[]
         {
             { .original = orig1 },
             { .original = orig2 }
         };
-        const auto unhookedCount = multiunhook(originals, 2);
+        const auto unhookedCount = multiunhook(unhooks, 2);
         hk_assert(unhookedCount == 2);
 
         hk_assert(func<1>(11, 22) == validFunc<1>(11, 22));
@@ -150,7 +154,7 @@ namespace
             const auto* const in = static_cast<const HookRequest::Input*>(irpStack->Parameters.DeviceIoControl.Type3InputBuffer);
             auto* const out = static_cast<HookRequest::Output*>(irp->UserBuffer);
 
-            out->original = reinterpret_cast<unsigned long long>(hook(reinterpret_cast<void*>(in->fn), reinterpret_cast<const void*>(in->handler)));
+            hook(reinterpret_cast<void*>(in->fn), reinterpret_cast<const void*>(in->handler), reinterpret_cast<void**>(&out->original));
 
             irp->IoStatus.Status = out->original ? STATUS_SUCCESS : STATUS_UNSUCCESSFUL;
             irp->IoStatus.Information = sizeof(HookRequest::Output);

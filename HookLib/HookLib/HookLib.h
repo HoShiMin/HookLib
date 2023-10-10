@@ -12,7 +12,7 @@ typedef struct
 {
     void* fn;
     const void* handler;
-    void* original; // hook() makes it valid callable pointer after successful hook and sets as nullptr otherwise
+    void** original; // hook() makes it valid callable pointer after successful hook and sets as nullptr otherwise
 } Hook;
 
 typedef struct
@@ -20,8 +20,8 @@ typedef struct
     void* original; // unhook() makes it nullptr after successful unhook and keeps unchanged otherwise
 } Unhook;
 
-hooklib_export void* hook(void* fn, const void* handler);
-hooklib_export size_t multihook(Hook* hooks, size_t count);
+hooklib_export void hook(void* fn, const void* handler, void** original);
+hooklib_export size_t multihook(const Hook* hooks, size_t count);
 
 hooklib_export size_t multiunhook(Unhook* originals, size_t count);
 hooklib_export size_t unhook(void* original);
@@ -116,7 +116,7 @@ public:
             return true;
         }
 
-        m_orig = static_cast<Fn>(hook(m_fn, m_handler));
+        hook(m_fn, m_handler, reinterpret_cast<void**>(&m_orig));
 
         return m_orig != nullptr;
     }

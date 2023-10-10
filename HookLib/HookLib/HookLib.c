@@ -1809,12 +1809,14 @@ static void writeJumpToContinuation(const Arch arch, void* const from, const voi
     }
 }
 
-static bool applyHook(const Arch arch, HookData* const hook, void* const fn, const void* const handler)
+static bool applyHook(const Arch arch, HookData* const hook, void* const fn, const void* const handler, void** original)
 {
-    if (!hook || !fn)
+    if (!hook || !fn || !original)
     {
         return false;
     }
+
+    hook->fn = fn;
 
     const bool needLongJump = k_forceLongJumps || !relativeJumpable(fn, handler);
     const bool intermediateJumpAppliable = k_enableIntermediateJumps && needLongJump && relativeJumpable(fn, &hook->intermediate);
@@ -1832,17 +1834,21 @@ static bool applyHook(const Arch arch, HookData* const hook, void* const fn, con
 
             memcpy(hook->original, fn, relocatedBytes);
 
-            const LongJump64 jump = makeLongJump64(handler);
-            const bool status = writeToReadonly(fn, &jump, sizeof(jump));
-            if (!status)
-            {
-                return false;
-            }
-
             const void* const beginningContinuation = (const unsigned char*)fn + relocatedBytes;
             writeJumpToContinuation(x64, &hook->beginning[relocatedBytes], beginningContinuation);
 
             hook->affectedBytes = relocatedBytes;
+
+            *original = hook->beginning;
+            _mm_sfence();
+
+            const LongJump64 jump = makeLongJump64(handler);
+            const bool status = writeToReadonly(fn, &jump, sizeof(jump));
+            if (!status)
+            {
+                *original = nullptr;
+                return false;
+            }
         }
         else
         {
@@ -1854,17 +1860,21 @@ static bool applyHook(const Arch arch, HookData* const hook, void* const fn, con
 
             memcpy(hook->original, fn, relocatedBytes);
 
-            const LongJump32 jump = makeLongJump32(fn, handler);
-            const bool status = writeToReadonly(fn, &jump, sizeof(jump));
-            if (!status)
-            {
-                return false;
-            }
-
             const void* const beginningContinuation = (const unsigned char*)fn + relocatedBytes;
             writeJumpToContinuation(x32, &hook->beginning[relocatedBytes], beginningContinuation);
 
             hook->affectedBytes = relocatedBytes;
+
+            *original = hook->beginning;
+            _mm_sfence();
+
+            const LongJump32 jump = makeLongJump32(fn, handler);
+            const bool status = writeToReadonly(fn, &jump, sizeof(jump));
+            if (!status)
+            {
+                *original = nullptr;
+                return false;
+            }
         }
     }
     else
@@ -1889,17 +1899,21 @@ static bool applyHook(const Arch arch, HookData* const hook, void* const fn, con
 
             memcpy(hook->original, fn, relocatedBytes);
 
-            const RelJump jump = makeRelJump(fn, &hook->intermediate);
-            const bool status = writeToReadonly(fn, &jump, sizeof(jump));
-            if (!status)
-            {
-                return false;
-            }
-
             const void* const beginningContinuation = (const unsigned char*)fn + relocatedBytes;
             writeJumpToContinuation(arch, &hook->beginning[relocatedBytes], beginningContinuation);
 
             hook->affectedBytes = relocatedBytes;
+
+            *original = hook->beginning;
+            _mm_sfence();
+
+            const RelJump jump = makeRelJump(fn, &hook->intermediate);
+            const bool status = writeToReadonly(fn, &jump, sizeof(jump));
+            if (!status)
+            {
+                *original = nullptr;
+                return false;
+            }
         }
         else
         {
@@ -1911,63 +1925,63 @@ static bool applyHook(const Arch arch, HookData* const hook, void* const fn, con
 
             memcpy(hook->original, fn, relocatedBytes);
 
+            const void* const beginningContinuation = (const unsigned char*)fn + relocatedBytes;
+            writeJumpToContinuation(arch, &hook->beginning[relocatedBytes], beginningContinuation);
+
+            hook->affectedBytes = relocatedBytes;
+
+            *original = hook->beginning;
+            _mm_sfence();
+
             const RelJump jump = makeRelJump(fn, handler);
             const bool status = writeToReadonly(fn, &jump, sizeof(jump));
             if (!status)
             {
                 return false;
             }
-
-            const void* const beginningContinuation = (const unsigned char*)fn + relocatedBytes;
-            writeJumpToContinuation(arch, &hook->beginning[relocatedBytes], beginningContinuation);
-
-            hook->affectedBytes = relocatedBytes;
         }
     }
 
-    hook->fn = fn;
     return true;
 }
 
 
 #if _USER_MODE
-static void* setHook(Arch arch, void* fn, const void* handler)
+static void setHook(Arch arch, void* fn, const void* handler, void** original)
 {
     HookPage* const existingPage = findHookPage(fn);
     if (existingPage)
     {
         HookData* const freeHookCell = claimHookCell(existingPage);
-        const bool hookStatus = applyHook(arch, freeHookCell, fn, handler);
+        const bool hookStatus = applyHook(arch, freeHookCell, fn, handler, original);
         if (hookStatus)
         {
-            return freeHookCell->beginning;
+            return;
         }
+
         releaseHookCell(freeHookCell);
-        return nullptr;
     }
 
     void* const nearestFreePage = findPageForRelativeJump(fn); // Nullable
     HookPage* const newPage = allocHookPage(nearestFreePage);
     if (!newPage)
     {
-        return nullptr;
+        return;
     }
     
     HookData* const freeHookCell = claimHookCell(newPage);
-    const bool hookStatus = applyHook(arch, freeHookCell, fn, handler);
+    const bool hookStatus = applyHook(arch, freeHookCell, fn, handler, original);
     if (!hookStatus)
     {
         releaseHookCell(freeHookCell);
         freeHookPage(newPage);
-        return nullptr;
+        return;
     }
 
     insertHookPage(newPage);
-
-    return freeHookCell->beginning;
 }
 #else
-static void* setHook(Arch arch, void* fn, const void* handler)
+static void setHook(Arch arch, void* fn, const void* handler, void** original)
 {
     if (isUserAddress(fn))
     {
@@ -1975,11 +1989,12 @@ static void* setHook(Arch arch, void* fn, const void* handler)
         if (existingPage)
         {
             HookData* const freeHookCell = claimHookCell(existingPage);
-            const bool hookStatus = applyHook(arch, freeHookCell, fn, handler);
+            const bool hookStatus = applyHook(arch, freeHookCell, fn, handler, original);
             if (hookStatus)
             {
-                return freeHookCell->beginning;
+                return;
             }
+
             releaseHookCell(freeHookCell);
         }
 
@@ -1987,33 +2002,28 @@ static void* setHook(Arch arch, void* fn, const void* handler)
         HookPage* const newPage = allocHookPage(nearestFreePage);
         if (!newPage)
         {
-            return nullptr;
+            return;
         }
 
         HookData* const freeHookCell = claimHookCell(newPage);
-        const bool hookStatus = applyHook(arch, freeHookCell, fn, handler);
+        const bool hookStatus = applyHook(arch, freeHookCell, fn, handler, original);
         if (!hookStatus)
         {
             releaseHookCell(freeHookCell);
             freeHookPage(newPage);
-            return nullptr;
+            return;
         }
 
         insertHookPage(newPage);
-
-        return freeHookCell->beginning;
     }
     else
     {
         HookData* const hookData = (HookData*)allocKernel(sizeof(HookData));
-        const bool hookStatus = applyHook(arch, hookData, fn, handler);
+        const bool hookStatus = applyHook(arch, hookData, fn, handler, original);
         if (!hookStatus)
         {
             freeKernel(hookData);
-            return nullptr;
         }
-
-        return hookData->beginning;
     }
 }
 #endif
@@ -2026,7 +2036,7 @@ typedef enum
 
 typedef union
 {
-    Hook* hooks;
+    const Hook* hooks;
     Unhook* unhooks;
 } HooksUnhooks;
 
@@ -2044,7 +2054,7 @@ static size_t calcNewInstructionPointer(const HooksUnhooks hooksUnhooks, const s
                 continue;
             }
 
-            const HookData* const hookData = (HookData*)((unsigned char*)hook->original - offsetof(HookData, beginning));
+            const HookData* const hookData = (HookData*)((unsigned char*)*hook->original - offsetof(HookData, beginning));
             if ((ip >= (size_t)hookData->fn) && (ip < ((size_t)hookData->fn + hookData->affectedBytes)))
             {
                 needToFix = true;
@@ -2366,15 +2376,15 @@ static void fixupContexts(const ProcInfo* const proc, const HooksUnhooks hooksUn
 
 
 
-static size_t applyHooks(Arch arch, Hook* hooks, size_t count)
+static size_t applyHooks(Arch arch, const Hook* hooks, size_t count)
 {
     size_t hookedCount = 0;
 
     for (size_t i = 0; i < count; ++i)
     {
-        Hook* const hook = &hooks[i];
-        hook->original = setHook(arch, hook->fn, hook->handler);
-        if (hook->original)
+        const Hook* const hook = &hooks[i];
+        setHook(arch, hook->fn, hook->handler, hook->original);
+        if (*hook->original)
         {
 #if _KERNEL_MODE
             _mm_clflush(hook->fn);
@@ -2389,7 +2399,7 @@ static size_t applyHooks(Arch arch, Hook* hooks, size_t count)
 }
 
 #if _USER_MODE
-size_t multihook(Hook* hooks, size_t count)
+size_t multihook(const Hook* hooks, size_t count)
 {
     if (!hooks || !count)
     {
@@ -2398,7 +2408,7 @@ size_t multihook(Hook* hooks, size_t count)
 
     for (size_t i = 0; i < count; ++i)
     {
-        hooks[i].original = nullptr;
+        *hooks[i].original = nullptr;
     }
 
     ProcInfo* const snapshot = makeProcSnapshot();
@@ -2432,7 +2442,7 @@ size_t multihook(Hook* hooks, size_t count)
     return hookedCount;
 }
 #else
-size_t multihook(Hook* hooks, size_t count)
+size_t multihook(const Hook* hooks, size_t count)
 {
     if (!hooks || !count)
     {
@@ -2443,7 +2453,7 @@ size_t multihook(Hook* hooks, size_t count)
     for (size_t i = 0; i < count; ++i)
     {
         hasUserHooks |= isUserAddress(hooks[i].fn);
-        hooks[i].original = nullptr;
+        *hooks[i].original = nullptr;
     }
 
     if (hasUserHooks)
@@ -2501,23 +2511,21 @@ size_t multihook(Hook* hooks, size_t count)
 }
 #endif
 
-void* hook(void* fn, const void* handler)
+void hook(void* fn, const void* handler, void** original)
 {
-    if (!fn)
+    if (!fn || !original)
     {
-        return nullptr;
+        return;
     }
 
-    Hook hook =
+    const Hook hook =
     {
         .fn = fn,
         .handler = handler,
-        .original = nullptr
+        .original = original
     };
     
     multihook(&hook, 1);
-    
-    return hook.original;
 }
 
 static bool performUnhook(HookData* hook)

@@ -5,7 +5,7 @@
 
 #include <string>
 
-constexpr bool k_testKernelMode = true;
+constexpr bool k_testKernelMode = false;
 
 namespace
 {
@@ -25,9 +25,9 @@ __declspec(noinline) int handler(int arg1, float arg2)
 }
 
 template <typename Func>
-Func hookFunc(Func fn, Func handler)
+void hookFunc(Func fn, Func handler, Func* original)
 {
-    return static_cast<Func>(hook(fn, handler));
+    hook(fn, handler, reinterpret_cast<void**>(original));
 }
 
 #define begin_test printf("%s:\n", __FUNCTION__)
@@ -41,7 +41,8 @@ void testHookOnce()
 
     func<0>(0, 0.123f);
 
-    const auto orig0 = hookFunc(func<0>, handler<0>);
+    decltype(func<0>)* orig0 = nullptr;
+    hookFunc(func<0>, handler<0>, &orig0);
 
     hk_assert(orig0 != nullptr);
 
@@ -58,8 +59,10 @@ void testSerialHooks()
 {
     begin_test;
 
-    const auto orig1 = hookFunc(func<1>, handler<1>);
-    const auto orig2 = hookFunc(func<2>, handler<2>);
+    decltype(func<1>)* orig1 = nullptr;
+    decltype(func<2>)* orig2 = nullptr;
+    hookFunc(func<1>, handler<1>, &orig1);
+    hookFunc(func<2>, handler<2>, &orig2);
 
     func<1>(1, 0.1f);
     orig1(1, 0.1f);
@@ -80,8 +83,10 @@ void testSerialHooksMultiunhook()
 {
     begin_test;
 
-    const auto orig1 = hookFunc(func<1>, handler<1>);
-    const auto orig2 = hookFunc(func<2>, handler<2>);
+    decltype(func<1>)* orig1 = nullptr;
+    decltype(func<2>)* orig2 = nullptr;
+    hookFunc(func<1>, handler<1>, &orig1);
+    hookFunc(func<2>, handler<2>, &orig2);
 
     func<1>(1, 0.1f);
     orig1(1, 0.1f);
@@ -102,15 +107,19 @@ void testMultihook()
 {
     begin_test;
 
+    void* originals[2]{};
+
     Hook hooks[2]
     {
         {
             .fn = func<1>,
-            .handler = handler<1>
+            .handler = handler<1>,
+            .original = &originals[0]
         },
         {
             .fn = func<2>,
-            .handler = handler<2>
+            .handler = handler<2>,
+            .original = &originals[1]
         }
     };
 
@@ -120,16 +129,16 @@ void testMultihook()
     using Fn1 = decltype(func<1>)*;
     using Fn2 = decltype(func<2>)*;
 
-    hk_assert(hooks[0].original != nullptr);
-    hk_assert(hooks[1].original != nullptr);
+    hk_assert(originals[0] != nullptr);
+    hk_assert(originals[1] != nullptr);
 
     func<1>(1, 0.1f);
-    static_cast<Fn1>(hooks[0].original)(1, 0.1f);
+    static_cast<Fn1>(originals[0])(1, 0.1f);
 
     func<2>(2, 0.2f);
-    static_cast<Fn2>(hooks[1].original)(2, 0.2f);
+    static_cast<Fn2>(originals[1])(2, 0.2f);
 
-    Unhook fns[2]{ hooks[0].original, hooks[1].original };
+    Unhook fns[2]{ originals[0], originals[1] };
     multiunhook(fns, 2);
 
     func<1>(1, 0.1f);
@@ -166,8 +175,16 @@ void testContextsFixup()
     hk_assert(setStatus);
 
     SwitchToThread();
+    const bool ensureStatus = !!GetThreadContext(hThread, &ctx); // Ensure that the context was setted
+    hk_assert(ensureStatus);
+#ifdef _AMD64_
+    hk_assert(ctx.Rip == reinterpret_cast<size_t>(func<0>));
+#else
+    hk_assert(ctx.Eip == reinterpret_cast<size_t>(func<0>));
+#endif
 
-    const auto orig = hookFunc(func<0>, handler<0>);
+    decltype(func<0>)* orig = nullptr;
+    hookFunc(func<0>, handler<0>, &orig);
 
     const bool secondGetStatus = !!GetThreadContext(hThread, &ctx);
     hk_assert(secondGetStatus);
