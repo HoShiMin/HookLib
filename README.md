@@ -1,6 +1,7 @@
 # HookLib²
 ## The Win32 lightweight functions interception library
 ### ✔ Advantages:
+* Very easy language and easy to understand.
 * Written on pure C
 * Extremely lightweight
 * Based on the fastest and lightweight [Zydis](https://github.com/zyantific/zydis) disassembler
